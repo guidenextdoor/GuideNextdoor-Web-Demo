@@ -1,0 +1,129 @@
+{
+  "nav": {
+    "explore": "探索",
+    "destinations": "目的地",
+    "becomeGuide": "成为向导",
+    "login": "登录",
+    "signup": "注册"
+  },
+  "hero": {
+    "ratingTag": "超过一万名旅人真心推荐 🌍",
+    "title": "像朋友一样探索世界。",
+    "subtitle": "联系当地教练、向导和旅伴。体验旅游陷阱以外的真实城市。",
+    "findBtn": "寻找向导",
+    "becomeBtn": "成为向导",
+    "foundGuide": "找到向导了！",
+    "slides": [
+      { "author": "Kenji Y.", "event": "东京摄影漫步" },
+      { "author": "Sarah L.", "event": "曼谷街头美食" },
+      { "author": "Wei C.", "event": "台北夜间登山" },
+      { "author": "Emma W.", "event": "首尔咖啡厅巡礼" }
+    ]
+  },
+  "howItWorks": {
+    "title": "开启你的本地冒险 ✨",
+    "step1": { "title": "选择目的地", "desc": "选择你想去的地方和想体验的事物。" },
+    "step2": { "title": "寻找当地专家", "desc": "浏览经过审核的当地向导和旅伴的个人档案。" },
+    "step3": { "title": "一起探索", "desc": "见面并发掘城市的隐藏瑰宝。" }
+  },
+  "featured": {
+    "title": "认识你的本地好搭档 👋",
+    "subtitle": "避开游客区，跟着最懂玩的本地人探索真实城市。",
+    "viewAll": "查看全部"
+  },
+  "categories": {
+    "title": "选择你的专属玩法 🎯",
+    "items": {
+      "food": "美食与美酒",
+      "photo": "摄影探索",
+      "hike": "户外与徒步",
+      "cafe": "咖啡厅巡礼",
+      "night": "夜生活体验"
+    }
+  },
+  "socialProof": { "title": "旅客故事" },
+  "becomeGuideCta": {
+    "title": "向世界分享你的城市。",
+    "desc": "将你对家乡的热情转化为弹性收入。加入数以千计正在举办独特体验的本地人行列。",
+    "btn": "成为向导"
+  },
+  "footer": {
+    "desc": "通过本地人的视角探索世界。为充满好奇心与冒险精神的旅人重新定义旅行。",
+    "about": "关于我们",
+    "faq": "常见问题",
+    "terms": "条款",
+    "privacy": "隐私政策",
+    "rights": "版权所有。"
+  },
+  "guideRoles": {
+    "food": "美食向导",
+    "photo": "街头摄影师",
+    "hike": "徒步教练",
+    "culture": "文化专家",
+    "night": "夜生活达人",
+    "fitness": "健身教练",
+    "cafe": "探店达人"
+  },
+  "destinations": {
+    "title": "热门目的地",
+    "subtitle": "探索社区中最受欢迎的城市。",
+    "viewGuides": "查看向导"
+  },
+  "becomeGuide": {
+    "steps": {
+      "info": "基本资料",
+      "location": "所在地",
+      "photos": "上传照片",
+      "verify": "身份验证"
+    },
+    "form": {
+      "title": "关于你自己",
+      "name": "真实姓名",
+      "namePlaceholder": "你的姓名",
+      "email": "電子郵件",
+      "emailPlaceholder": "email@example.com",
+      "bio": "个人简介",
+      "bioPlaceholder": "是什么让你成为一名出色的向导？",
+      "locationTitle": "你目前在哪里？",
+      "city": "城市",
+      "cityPlaceholder": "例如：香港、东京",
+      "specialties": "专长",
+      "vibeTitle": "展示你的风格",
+      "uploadTitle": "上传照片",
+      "uploadDesc": "拖放照片或点击浏览",
+      "finishTitle": "就快完成了！",
+      "finishDesc": "你的申请已准备好接受审核。我们的团队将验证你的身份，并在 24-48 小時內回复你。",
+      "back": "返回",
+      "continue": "继续",
+      "finish": "完成"
+    }
+  },
+  "tags": {
+    "photography": "摄影探索",
+    "hiddenSpots": "隐藏瑰宝",
+    "streetFood": "街头美食",
+    "nightlife": "夜生活",
+    "nature": "大自然",
+    "fitness": "健身运动",
+    "temples": "寺庙文化",
+    "markets": "本地市集",
+    "barHopping": "酒吧巡礼",
+    "clubs": "夜店体验",
+    "localEats": "本地美食",
+    "history": "历史文化",
+    "coffee": "咖啡文化",
+    "art": "艺术探索",
+    "shrines": "神社参拜",
+    "teaCeremony": "茶道体验"
+  },
+  "cities": {
+    "tokyo": "日本东京",
+    "hongkong": "香港",
+    "taipei": "台湾台北",
+    "bangkok": "泰国曼谷",
+    "seoul": "韩国首尔",
+    "macau": "澳门",
+    "melbourne": "澳洲墨尔本",
+    "kyoto": "日本京都"
+  }
+}
