@@ -1,11 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Star, Search, ArrowRight, MapPin, Users
+  Star, Search, ArrowRight, MapPin, Users, Heart
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { MOCK_GUIDES, CATEGORIES, HERO_SLIDES } from '../data/mockData.jsx';
+import { MOCK_GUIDES, CATEGORIES, HERO_SLIDES, MOCK_POSTS } from '../data/mockData.jsx';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+
+const SocialPost = ({ post, t }) => (
+  <motion.div 
+    initial={{ opacity: 0, y: 20 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true }}
+    transition={{ duration: 0.5 }}
+    className="break-inside-avoid mb-6 group cursor-pointer"
+  >
+    <div className="relative rounded-[24px] overflow-hidden bg-gray-100 shadow-sm group-hover:shadow-xl transition-all duration-500">
+      <img 
+        src={post.img} 
+        alt={post.caption} 
+        className="w-full object-cover transition-transform duration-700 group-hover:scale-105"
+        style={{ aspectRatio: post.aspect_ratio }}
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
+        <p className="text-white text-sm font-medium line-clamp-2 mb-2">{post.caption}</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <img src={post.avatar} className="w-6 h-6 rounded-full object-cover border border-white/20" />
+            <span className="text-white text-xs font-semibold">{post.instructor_name}</span>
+          </div>
+          <div className="flex items-center gap-1 text-white text-xs">
+            <Heart size={14} className="fill-current text-gnd-red" />
+            <span>{post.likes}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </motion.div>
+);
 
 const GuideCard = ({ guide, t, i18n }) => (
   <Link to={`/${i18n.language}/guide/${guide.id}`} className="w-72 shrink-0 cursor-pointer group/card select-none">
@@ -249,7 +281,7 @@ export default function HomeView() {
       <section className="py-20 bg-gnd-cream">
         <div className="max-w-7xl mx-auto px-6 md:px-12">
           <h2 className="text-2xl md:text-3xl font-bold mb-10">{t('categories.title')}</h2>
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-wrap gap-4 mb-16">
             {CATEGORIES.map((cat) => (
               <Link 
                 to={`/${i18n.language}/explore?category=${cat.id}`}
@@ -266,10 +298,17 @@ export default function HomeView() {
               </Link>
             ))}
           </div>
+
+          {/* Social Feed - MASONRY GRID (Now inside the vibe section) */}
+          <div className="columns-2 md:columns-3 lg:columns-4 gap-6 space-y-6">
+            {MOCK_POSTS.map((post) => (
+              <SocialPost key={post.id} post={post} t={t} />
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* Featured Guides Slider - ADVANCED Interaction */}
+      {/* Featured Guides Slider - RESTORED */}
       <section className="py-24 bg-white overflow-hidden">
         <div className="max-w-7xl mx-auto px-6 md:px-12">
           <div className="flex justify-between items-end mb-12">
@@ -284,15 +323,12 @@ export default function HomeView() {
         </div>
 
         <div className="relative w-full space-y-12 py-4 [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)]">
-          
           {/* Row 1 */}
           <div 
             ref={row1Ref}
             onMouseDown={onMouseDown1}
             onMouseEnter={() => isPaused1.current = true}
             onMouseLeave={() => { if (!isDragging1.current) isPaused1.current = false; }}
-            onTouchStart={() => { isPaused1.current = true; lastInteraction1.current = Date.now(); }}
-            onTouchEnd={() => { setTimeout(() => { if (!isDragging1.current) isPaused1.current = false; }, 1500) }}
             className="flex overflow-x-auto gap-6 px-6 pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] cursor-grab active:cursor-grabbing touch-pan-x"
           >
             {[...MOCK_GUIDES, ...MOCK_GUIDES, ...MOCK_GUIDES].map((guide, idx) => (
@@ -306,8 +342,6 @@ export default function HomeView() {
             onMouseDown={onMouseDown2}
             onMouseEnter={() => isPaused2.current = true}
             onMouseLeave={() => { if (!isDragging2.current) isPaused2.current = false; }}
-            onTouchStart={() => { isPaused2.current = true; lastInteraction2.current = Date.now(); }}
-            onTouchEnd={() => { setTimeout(() => { if (!isDragging2.current) isPaused2.current = false; }, 1500) }}
             className="flex overflow-x-auto gap-6 px-6 pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] cursor-grab active:cursor-grabbing touch-pan-x"
           >
             {[...MOCK_GUIDES, ...MOCK_GUIDES, ...MOCK_GUIDES].map((guide, idx) => (
@@ -317,7 +351,7 @@ export default function HomeView() {
         </div>
 
         <div className="max-w-7xl mx-auto px-6 md:px-12">
-          <button className="md:hidden mt-8 w-full flex justify-center items-center gap-2 text-gnd-red font-medium py-4 bg-gray-50 rounded-2xl">
+          <button className="md:hidden mt-12 w-full flex justify-center items-center gap-2 text-gnd-red font-medium py-4 bg-gray-50 rounded-2xl">
             {t('featured.viewAll')} <ArrowRight size={18} />
           </button>
         </div>
