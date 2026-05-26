@@ -12,10 +12,12 @@ import {
 } from 'lucide-react';
 import { fetchInstructorSchedule } from '../../lib/database';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
+import BookingDetailModal from '../../components/BookingDetailModal';
 
 export default function InstructorOverview() {
   const { t } = useTranslation();
   const [state, setState] = useState({ loading: true, data: null, error: null });
+  const [selectedBooking, setSelectedBooking] = useState(null);
 
   useEffect(() => {
     async function loadData() {
@@ -38,8 +40,7 @@ export default function InstructorOverview() {
       title={t('workspace.overview.welcome', { name: coach?.name?.split(' ')[0] || 'Coach' })}
       subtitle={t('workspace.overview.subtitle')}
     >
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label={t('profile.stats.likes')} value={stats.totalLikes || 0} icon={Heart} color="text-gnd-red" />
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label={t('profile.stats.reviews')} value={stats.reviewCount || 0} icon={Star} subValue={stats.averageRating ? stats.averageRating.toFixed(1) : '0.0'} color="text-yellow-500" />
         <StatCard label={t('profile.stats.sessions')} value={stats.sessionCount || 0} icon={Calendar} color="text-blue-500" />
         <StatCard label={t('workspace.overview.earnings')} value={formatEarnings(stats.earningsThisMonth)} icon={TrendingUp} subValue={t('workspace.overview.thisMonth')} color="text-green-600" />
@@ -58,7 +59,7 @@ export default function InstructorOverview() {
           </div>
           <div className="grid gap-3">
             {pendingBookings.length > 0 ? pendingBookings.map((booking) => (
-              <BookingActionCard key={booking.id} booking={booking} type="pending" />
+              <BookingActionCard key={booking.id} booking={booking} type="pending" onClick={() => setSelectedBooking(booking)} />
             )) : (
               <EmptyState small message={t('workspace.overview.noPending')} />
             )}
@@ -77,39 +78,47 @@ export default function InstructorOverview() {
           </div>
           <div className="grid gap-3">
             {upcomingBookings.length > 0 ? upcomingBookings.map((booking) => (
-              <BookingActionCard key={booking.id} booking={booking} type="upcoming" />
+              <BookingActionCard key={booking.id} booking={booking} type="upcoming" onClick={() => setSelectedBooking(booking)} />
             )) : (
               <EmptyState small message={t('workspace.overview.noUpcoming')} />
             )}
           </div>
         </section>
       </div>
+
+      {selectedBooking && (
+        <BookingDetailModal 
+          booking={selectedBooking} 
+          onClose={() => setSelectedBooking(null)} 
+          t={t} 
+        />
+      )}
     </InstructorDashboardLayout>
   );
 }
 
 function StatCard({ label, value, icon: Icon, subValue, color }) {
   return (
-    <div className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5">
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gnd-gray">{label}</p>
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-xl font-black text-gnd-dark sm:text-2xl">{value}</span>
-            {subValue && <span className={`text-xs font-black ${color}`}>{subValue}</span>}
-          </div>
-        </div>
-        <div className={`rounded-md bg-gnd-cream/50 p-2 ${color}`}>
-          <Icon size={20} />
-        </div>
+    <div className="rounded-lg border border-gnd-cream bg-white p-6 shadow-sm transition-shadow hover:shadow-md text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray mb-3">{label}</p>
+      <div className="flex flex-col items-center gap-1">
+        <span className="text-3xl font-black text-gnd-dark">{value}</span>
+        {subValue && (
+          <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-gnd-cream/30 ${color}`}>
+            {subValue}
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
-function BookingActionCard({ booking, type }) {
+function BookingActionCard({ booking, type, onClick }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-gnd-cream bg-gnd-cream/15 p-3 transition-colors hover:border-gnd-red/20">
+    <button 
+      onClick={onClick}
+      className="flex w-full items-center justify-between rounded-lg border border-gnd-cream bg-gnd-cream/15 p-3 text-left transition-all hover:border-gnd-red/20 hover:bg-gnd-cream/25 active:scale-[0.99]"
+    >
       <div className="flex items-center gap-4">
         <div className={`grid h-10 w-10 place-items-center rounded-md ${type === 'pending' ? 'bg-red-50 text-gnd-red' : 'bg-blue-50 text-blue-500'}`}>
           <Calendar size={20} />
@@ -120,7 +129,7 @@ function BookingActionCard({ booking, type }) {
         </div>
       </div>
       <ArrowUpRight size={18} className="text-gnd-cream" />
-    </div>
+    </button>
   );
 }
 

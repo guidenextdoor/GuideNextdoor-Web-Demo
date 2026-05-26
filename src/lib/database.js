@@ -526,7 +526,7 @@ async function fetchInstructorServiceBookings(services, session = null) {
   if (!serviceIds.length) return { data: [], error: null, tableName: 'bookings' };
 
   return queryTable('bookings', {
-    select: 'id,service_id,lesson_date,start_time_utc,duration_hours,group_size,skill_level_booked,total_price,status',
+    select: '*,users(display_name,avatar_url,email),messages(*)',
     service_id: `in.(${serviceIds.join(',')})`,
     order: 'lesson_date.asc,start_time_utc.asc',
     limit: '240',
@@ -753,6 +753,10 @@ function normalizeBookedSlot(row) {
   const durationHours = Number(row.duration_hours) || 1;
   const startTime = formatTime(row.start_time_utc);
   const totalPrice = Number(row.total_price) || 0;
+  const user = row.users || {};
+  const messages = Array.isArray(row.messages) ? row.messages : [];
+  // The first message is typically the learner's note from the booking form
+  const firstMessage = messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
 
   return {
     id: row.id,
@@ -767,6 +771,12 @@ function normalizeBookedSlot(row) {
     totalPrice,
     currency: row.currency || 'USD',
     status: row.status || 'Pending',
+    locationDetails: row.location_details || '',
+    learnerName: user.display_name || user.email || 'GuideNextdoor learner',
+    learnerAvatar: user.avatar_url || '',
+    learnerNote: firstMessage?.text_content || '',
+    createdAt: row.created_at || '',
+    cancelledAt: row.cancelled_at || null,
   };
 }
 
