@@ -10,8 +10,13 @@ import ExploreView from './views/ExploreView';
 import DestinationsView from './views/DestinationsView';
 import GuideProfileView from './views/GuideProfileView';
 import BecomeGuideView from './views/BecomeGuideView';
-import WorkspaceView from './views/WorkspaceView';
 import LoginView from './views/LoginView';
+import DashboardView from './views/instructor/DashboardView';
+import InstructorOverview from './views/instructor/InstructorOverview';
+import InstructorBookings from './views/instructor/InstructorBookings';
+import InstructorMessages from './views/instructor/InstructorMessages';
+import InstructorServices from './views/instructor/InstructorServices';
+import InstructorSchedule from './views/instructor/InstructorSchedule';
 
 const supportedLangs = ['en'];
 
@@ -49,8 +54,17 @@ function LanguageWrapper() {
                 <Route path="/guide/:id" element={<GuideProfileView />} />
                 <Route path="/become-guide" element={<BecomeGuideView />} />
                 <Route path="/login" element={<LoginView />} />
-                <Route path="/sessions" element={<WorkspaceView type="sessions" />} />
-                <Route path="/messages" element={<WorkspaceView type="messages" />} />
+                
+                {/* Instructor Dashboard */}
+                <Route path="/instructor" element={<DashboardView />}>
+                  <Route index element={<InstructorOverview />} />
+                  <Route path="bookings" element={<InstructorBookings />} />
+                  <Route path="messages" element={<InstructorMessages />} />
+                  <Route path="services" element={<InstructorServices />} />
+                  <Route path="schedule" element={<InstructorSchedule />} />
+                  <Route path="posts" element={<div>Posts Management (Coming Soon)</div>} />
+                  <Route path="profile" element={<div>Profile Management (Coming Soon)</div>} />
+                </Route>
               </Routes>
             </AnimatePresence>
           </Suspense>

@@ -7,8 +7,7 @@ const navItems = [
   { key: 'home', path: '', icon: LayoutDashboard },
   { key: 'explore', path: 'explore', icon: Compass },
   { key: 'destinations', path: 'destinations', icon: Globe2 },
-  { key: 'sessions', path: 'sessions', icon: CalendarDays },
-  { key: 'messages', path: 'messages', icon: MessageSquare },
+  { key: 'instructor', path: 'instructor', icon: LayoutDashboard },
 ];
 
 export default function Navbar() {

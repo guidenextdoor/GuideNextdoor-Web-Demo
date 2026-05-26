@@ -9,6 +9,7 @@
     "destinations": "Locations",
     "sessions": "Sessions",
     "messages": "Messages",
+    "instructor": "Dashboard",
     "becomeGuide": "Become a Coach",
     "login": "Log in",
     "language": "EN",
@@ -263,6 +264,19 @@
     }
   },
   "workspace": {
+    "overview": {
+      "title": "Overview",
+      "welcome": "Welcome back, {{name}}!",
+      "subtitle": "Here is what is happening with your coaching business today.",
+      "earnings": "Earnings",
+      "thisMonth": "This month",
+      "pendingRequests": "Pending requests",
+      "upcomingSessions": "Upcoming sessions",
+      "viewAll": "View all",
+      "viewSchedule": "View schedule",
+      "noPending": "No pending requests at the moment.",
+      "noUpcoming": "No confirmed sessions for the next few days."
+    },
     "sessions": {
       "eyebrow": "Scheduling",
       "title": "Sessions",
