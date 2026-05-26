@@ -11,7 +11,7 @@ import {
   LogOut
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { getCurrentSession, signOut } from '../lib/database';
+import { getCurrentSession, signOut } from '../../lib/database';
 
 export default function DashboardView() {
   const { t } = useTranslation();
