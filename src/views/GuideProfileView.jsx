@@ -6,9 +6,10 @@ import {
   CalendarDays,
   Camera,
   CheckCircle2,
+  ChevronRight,
   Clock,
   Heart,
-  ImageIcon,
+  Image as ImageIcon,
   MapPin,
   MessageCircle,
   MessageSquare,
@@ -29,6 +30,7 @@ export default function GuideProfileView() {
   const [state, setState] = useState({ loading: true, coach: null, error: null });
   const [activeTab, setActiveTab] = useState('posts');
   const [selectedPostId, setSelectedPostId] = useState(null);
+  const [selectedCert, setSelectedCert] = useState(null);
   const [bookingServiceId, setBookingServiceId] = useState(null);
   const [notice, setNotice] = useState('');
   const [shouldScrollToSessions, setShouldScrollToSessions] = useState(false);
@@ -161,41 +163,48 @@ export default function GuideProfileView() {
                     {coach.name.slice(0, 2).toUpperCase()}
                   </div>
                 )}
-                {coach.verified && (
-                  <span className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-gnd-red text-white">
-                    <ShieldCheck size={18} />
-                  </span>
-                )}
                 </div>
 
                 <div className="min-w-0 pb-1">
                   <p className="text-xs font-black uppercase tracking-[0.22em] text-gnd-red">{t('profile.eyebrow')}</p>
-                  <h1 className="mt-2 max-w-3xl text-3xl font-black tracking-tight sm:text-4xl md:text-5xl">{coach.name}</h1>
-                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm font-bold text-gnd-gray">
-                    {coach.location && (
-                      <span className="inline-flex items-center gap-1">
-                        <MapPin size={15} />
-                        {coach.location}
-                      </span>
-                    )}
+                  <div className="mt-2 flex max-w-3xl flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h1 className="text-3xl font-black tracking-tight sm:text-4xl md:text-5xl">{coach.name}</h1>
                     {coach.verified && (
-                      <span className="inline-flex items-center gap-1 text-gnd-red">
-                        <CheckCircle2 size={15} />
+                      <span className="inline-flex items-center gap-1 text-sm font-black text-gnd-red sm:text-base">
+                        <CheckCircle2 size={16} className="shrink-0" />
                         {t('profile.verified')}
                       </span>
                     )}
-                    {coach.timezone && <span>{coach.timezone}</span>}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm font-bold text-gnd-gray">
+                    {coach.stats.reviewCount > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-gnd-dark">
+                        <Star size={15} className="fill-current text-gnd-red" />
+                        {Number(coach.stats.averageRating || 0).toFixed(1)}
+                        <span className="font-medium text-gnd-gray">({coach.stats.reviewCount})</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-gnd-red/10 px-2.5 py-0.5 text-xs font-black text-gnd-red">
+                        <Star size={12} className="fill-current" />
+                        {t('profile.newJoin')}
+                      </span>
+                    )}
+                    {coach.location && (
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin size={15} className="text-gnd-red" />
+                        {coach.location}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="w-full rounded-[1.25rem] bg-white p-3 shadow-xl shadow-red-900/10 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-36 lg:justify-self-end">
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Stat label={t('profile.stats.likes')} value={coach.stats.totalLikes} />
-                <Stat label={t('profile.stats.reviews')} value={coach.stats.reviewCount} />
-                <Stat label={t('profile.stats.sessions')} value={coach.stats.sessionCount} />
                 <Stat label={t('profile.stats.services')} value={coach.stats.serviceCount} />
+                <Stat label={t('profile.stats.sessions')} value={coach.stats.sessionCount} />
                 <Stat label={t('profile.stats.years')} value={coach.stats.maxYears ? `${coach.stats.maxYears}+` : t('explore.newRating')} />
               </div>
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -232,21 +241,28 @@ export default function GuideProfileView() {
       </nav>
 
       <div ref={sessionsSectionRef} className="mt-6 scroll-mt-24">
-        {activeTab === 'posts' && <PostsTab coach={coach} t={t} onOpenPost={setSelectedPostId} />}
-        {activeTab === 'credentials' && <CredentialsTab coach={coach} t={t} />}
-        {activeTab === 'sessions' && <SessionsTab coach={coach} t={t} onRequestSession={setBookingServiceId} />}
-        {activeTab === 'reviews' && <ReviewsTab coach={coach} t={t} />}
+       {activeTab === 'posts' && <PostsTab coach={coach} t={t} onOpenPost={setSelectedPostId} />}
+       {activeTab === 'credentials' && <CredentialsTab coach={coach} t={t} onViewCert={setSelectedCert} />}
+       {activeTab === 'sessions' && <SessionsTab coach={coach} t={t} onRequestSession={setBookingServiceId} />}
+       {activeTab === 'reviews' && <ReviewsTab coach={coach} t={t} />}
       </div>
 
       {notice && (
-        <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-gnd-dark px-5 py-3 text-sm font-bold text-white shadow-2xl">
-          {notice}
-          <button type="button" className="ml-3 text-white/70" onClick={() => setNotice('')}>{t('explore.dismiss')}</button>
-        </div>
+       <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-gnd-dark px-5 py-3 text-sm font-bold text-white shadow-2xl">
+         {notice}
+         <button type="button" className="ml-3 text-white/70" onClick={() => setNotice('')}>{t('explore.dismiss')}</button>
+       </div>
       )}
 
-      {selectedPost && (
-        <ProfilePostModal
+      {selectedCert && (
+       <CertificateModal
+         cert={selectedCert}
+         onClose={() => setSelectedCert(null)}
+         t={t}
+       />
+      )}
+
+      {selectedPost && (        <ProfilePostModal
           post={selectedPost}
           coach={coach}
           onClose={() => setSelectedPostId(null)}
@@ -429,43 +445,106 @@ function ProfilePostModal({ post, coach, onClose, onLike, onSave, onViewSessions
   );
 }
 
-function CredentialsTab({ coach, t }) {
-  return (
-    <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-      <section className="rounded-2xl bg-white p-5 shadow-lg shadow-red-900/5">
-        <div className="flex items-start gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gnd-red text-white">
-            <ShieldCheck size={22} />
-          </div>
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-gnd-red">{t('profile.credentials.verification')}</p>
-            <h2 className="mt-1 text-2xl font-black">{coach.verified ? t('profile.verified') : t('profile.credentials.pending')}</h2>
-            <p className="mt-2 text-sm leading-6 text-gnd-gray">{t('profile.credentials.verificationBody')}</p>
-          </div>
-        </div>
-      </section>
+function CredentialsTab({ coach, t, onViewCert }) {
+  // Group qualifications by activity
+  const grouped = (coach.qualifications || []).reduce((acc, qual) => {
+    const activityKey = qual.activityKey || qual.title;
+    if (!acc[activityKey]) {
+      acc[activityKey] = {
+        title: qual.title,
+        iconName: qual.iconName,
+        items: []
+      };
+    }
+    acc[activityKey].items.push(qual);
+    return acc;
+  }, {});
 
-      <section className="rounded-2xl bg-white p-5 shadow-lg shadow-red-900/5">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-gnd-red">{t('profile.credentials.experience')}</p>
-        <div className="mt-4 grid gap-3">
-          {coach.services.length ? coach.services.map((service) => (
-            <div key={service.id} className="rounded-2xl border border-gnd-cream p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-black">{service.title}</h3>
-                  <p className="mt-1 text-sm font-bold text-gnd-gray">{service.qualification || t('profile.credentials.noQualification')}</p>
-                </div>
-                <span className="shrink-0 rounded-full bg-gnd-cream px-3 py-1 text-xs font-black text-gnd-red">{service.years}+ {t('profile.years')}</span>
-              </div>
-              {service.tags.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {service.tags.map((tag) => <span key={tag} className="rounded-full bg-gnd-cream px-3 py-1 text-xs font-bold text-gnd-gray">{tag}</span>)}
-                </div>
-              )}
+  const groups = Object.values(grouped).sort((a, b) => a.title.localeCompare(b.title));
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-6">
+      {groups.length ? groups.map((group) => (
+        <section key={group.title} className="rounded-2xl bg-white p-5 shadow-lg shadow-red-900/5 sm:p-8">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gnd-cream text-gnd-red">
+              <Award size={22} />
             </div>
-          )) : <p className="text-sm text-gnd-gray">{t('profile.empty.credentialsBody')}</p>}
+            <h2 className="text-xl font-black">{group.title}</h2>
+          </div>
+          <div className="mt-6 grid gap-4">
+            {group.items.sort((a, b) => (a.attainmentYear || 0) - (b.attainmentYear || 0)).map((qual) => (
+              <button
+                key={qual.id}
+                type="button"
+                className="group relative w-full rounded-2xl border border-gnd-cream p-5 text-left transition hover:border-gnd-red/20 hover:bg-gnd-cream/5"
+                onClick={() => onViewCert(qual)}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-black text-gnd-dark group-hover:text-gnd-red transition-colors">{qual.qualification || t('profile.credentials.noQualification')}</p>
+                    <div className="mt-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-gnd-red">
+                      <ImageIcon size={12} />
+                      {t('profile.viewCertificate')}
+                    </div>
+                  </div>
+                  {qual.attainmentYear && (
+                    <span className="shrink-0 rounded-full bg-gnd-cream px-3 py-1 text-xs font-black text-gnd-red">
+                      {qual.attainmentYear}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )) : (
+        <section className="rounded-2xl bg-white p-5 shadow-lg shadow-red-900/5 sm:p-8 text-center">
+          <p className="text-sm text-gnd-gray">{t('profile.empty.credentialsBody')}</p>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function CertificateModal({ cert, onClose, t }) {
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-gnd-dark/90 p-4 backdrop-blur-sm md:p-8">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="relative flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
+      >
+        <header className="flex items-center justify-between border-b border-gnd-cream px-6 py-4">
+          <div>
+            <h2 className="text-lg font-black leading-tight text-gnd-dark">{cert.qualification}</h2>
+            <p className="text-xs font-bold text-gnd-gray">{cert.title} • {cert.attainmentYear}</p>
+          </div>
+          <button
+            type="button"
+            className="grid h-10 w-10 place-items-center rounded-full bg-gnd-cream text-gnd-dark transition hover:bg-gnd-red hover:text-white"
+            onClick={onClose}
+          >
+            <X size={20} />
+          </button>
+        </header>
+        
+        <div className="flex-1 overflow-auto bg-gnd-cream/50 p-2 sm:p-6 md:p-10">
+          <div className="mx-auto max-w-3xl overflow-hidden rounded-xl bg-white shadow-lg">
+            <img
+              src={cert.certificateUrl || 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?auto=format&fit=crop&q=80&w=1200'}
+              alt={cert.qualification}
+              className="h-auto w-full"
+            />
+          </div>
         </div>
-      </section>
+
+        <footer className="border-t border-gnd-cream bg-white px-6 py-4 text-center">
+          <p className="text-[10px] font-black uppercase tracking-widest text-gnd-gray/60">
+            Official GuideNextdoor Verified Credential
+          </p>
+        </footer>
+      </motion.div>
     </div>
   );
 }
@@ -474,39 +553,67 @@ function SessionsTab({ coach, t, onRequestSession }) {
   if (!coach.services.length) return <EmptyPanel title={t('profile.empty.sessionsTitle')} body={t('profile.empty.sessionsBody')} />;
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {coach.services.map((service) => (
-        <article key={service.id} className="rounded-2xl bg-white p-5 shadow-lg shadow-red-900/5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-gnd-red">{service.status}</p>
-              <h2 className="mt-2 text-2xl font-black">{service.title}</h2>
-            </div>
-            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gnd-cream text-gnd-red">
-              <Award size={22} />
-            </div>
-          </div>
-          <p className="mt-3 text-sm leading-6 text-gnd-gray">{service.description || t('profile.sessions.descriptionPending')}</p>
-          <div className="mt-4 flex flex-wrap gap-2 text-xs font-black text-gnd-gray">
-            {service.locations.map((location) => <span key={location.id} className="rounded-full bg-gnd-cream px-3 py-1">{location.name}</span>)}
-            {service.years > 0 && <span className="rounded-full bg-gnd-cream px-3 py-1">{service.years}+ {t('profile.years')}</span>}
-            {service.qualification && <span className="rounded-full bg-gnd-cream px-3 py-1">{service.qualification}</span>}
-          </div>
-          <div className="mt-5 rounded-2xl bg-gnd-cream p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-gnd-gray">{t('profile.sessions.from')}</p>
-                <p className="mt-1 text-2xl font-black">{service.minPrice ? formatCurrency(service.minPrice, service.currency) : t('profile.sessions.pricePending')}</p>
+        <article key={service.id} className="group relative flex flex-col overflow-hidden rounded-2xl bg-white transition-all hover:shadow-xl hover:shadow-red-900/5 border border-gnd-cream/30">
+          <div className="flex flex-1 flex-col p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center rounded-md bg-green-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-green-600 border border-green-100">
+                    {service.status === 'approved' ? t('explore.verified') : service.status}
+                  </span>
+                  {service.qualification && (
+                    <span className="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-600 border border-blue-100">
+                      {t('profile.tabs.credentials')}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <h2 className="text-lg font-black tracking-tight text-gnd-dark group-hover:text-gnd-red transition-colors truncate">{service.title}</h2>
+                  {service.locations.length > 0 && (
+                    <div className="flex items-center gap-1 shrink-0 text-[10px] font-black text-gnd-gray/60 uppercase tracking-widest bg-gnd-cream/30 px-2 py-0.5 rounded-md">
+                      <MapPin size={10} className="text-gnd-red" />
+                      {service.locations[0].name}
+                      {service.locations.length > 1 && <span>+{service.locations.length - 1}</span>}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-sm font-black text-gnd-gray">
-                <Clock size={16} />
-                {t('profile.sessions.requestBased')}
+            </div>
+
+            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-gnd-gray">
+              {service.description || t('profile.sessions.descriptionPending')}
+            </p>
+
+            <div className="mt-4 flex items-center justify-between border-t border-gnd-cream/40 pt-4">
+              <div className="space-y-0.5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-gnd-gray/50">{t('profile.sessions.from')}</p>
+                <p className="text-lg font-black text-gnd-dark leading-none">
+                  {service.minPrice ? formatCurrency(service.minPrice, service.currency) : t('profile.sessions.pricePending')}
+                </p>
+              </div>
+              <div className="text-right space-y-0.5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-gnd-gray/50">{t('profile.booking.duration')}</p>
+                <div className="flex items-center justify-end gap-1 text-xs font-black text-gnd-dark">
+                  <Clock size={12} className="text-gnd-red" />
+                  {t('profile.sessions.requestBased')}
+                </div>
               </div>
             </div>
           </div>
-          <button type="button" className="mt-4 w-full rounded-2xl bg-gnd-red px-5 py-3 text-sm font-black text-white" onClick={() => onRequestSession(service.id)}>
-            {t('profile.bookAction')}
-          </button>
+
+          <div className="px-5 pb-5">
+            <button
+              type="button"
+              className="group/btn relative flex w-full items-center justify-center gap-1.5 overflow-hidden rounded-xl bg-gnd-red py-3 text-xs font-black text-white shadow-md shadow-red-600/10 transition-all hover:bg-gnd-dark active:scale-[0.98]"
+              onClick={() => onRequestSession(service.id)}
+            >
+              <CheckCircle2 size={14} />
+              {t('profile.bookAction')}
+              <ChevronRight size={14} className="transition-transform group-hover/btn:translate-x-0.5" />
+            </button>
+          </div>
         </article>
       ))}
     </div>
@@ -814,7 +921,7 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
 }
 
 function ReviewsTab({ coach, t }) {
-  const average = Number(coach.rating) || 0;
+  const average = Number(coach.stats.averageRating) || 0;
 
   return (
     <div className="grid gap-5 lg:grid-cols-[320px_1fr]">

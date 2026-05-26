@@ -137,8 +137,11 @@
     "bookAction": "Request session",
     "viewSessions": "View sessions",
     "messageAction": "Message",
+    "newJoin": "New Join",
     "noPayment": "No in-app payment is required in this MVP skeleton.",
     "verified": "Verified coach",
+    "timezoneLabel": "Timezone",
+    "viewCertificate": "View Certificate",
     "years": "years",
     "tabs": {
       "posts": "Posts",

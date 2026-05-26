@@ -341,7 +341,7 @@ export async function fetchInstructorProfile(id) {
   const coachResult = await fetchCoachById(id);
   if (coachResult.error || !coachResult.data) return coachResult;
 
-  const [postsResult, servicesResult, reviewsResult, availabilityResult, overridesResult] = await Promise.all([
+  const [postsResult, servicesResult, reviewsResult, availabilityResult, overridesResult, qualificationsResult] = await Promise.all([
     queryTable('posts', {
       select: '*,locations(*)',
       instructor_id: `eq.${id}`,
@@ -352,7 +352,7 @@ export async function fetchInstructorProfile(id) {
     queryTable('instructor_services', {
       select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*)',
       instructor_id: `eq.${id}`,
-      order: 'years_of_experience.desc',
+      order: 'attainment_year.asc',
       limit: '24',
     }),
     queryTable('reviews', {
@@ -373,11 +373,18 @@ export async function fetchInstructorProfile(id) {
       order: 'date.asc',
       limit: '20',
     }),
+    queryTable('instructor_qualifications', {
+      select: '*,ref_activities(*)',
+      instructor_id: `eq.${id}`,
+      order: 'attainment_year.asc',
+      limit: '48',
+    }),
   ]);
 
   const services = servicesResult.data.map((row) => normalizeInstructorService(row));
   const servicesWithLocations = await attachServiceLocations(services);
   const bookingsResult = await fetchInstructorServiceBookings(servicesWithLocations);
+  const qualifications = qualificationsResult.data.map((row) => normalizeQualification(row));
   const posts = postsResult.data.map((row) => normalizePost({
     ...row,
     instructor_profiles: {
@@ -410,10 +417,25 @@ export async function fetchInstructorProfile(id) {
       availability,
       availabilityOverrides,
       bookedSlots,
+      qualifications,
       stats: buildInstructorStats(coachResult.data, servicesWithLocations, postsWithInteractions, reviews),
     },
     error: null,
     tableName: coachResult.tableName,
+  };
+}
+
+function normalizeQualification(row) {
+  const activity = row.ref_activities || {};
+  return {
+    id: row.id,
+    activityId: row.activity_id,
+    activityKey: activity.translation_key || activity.category_key || '',
+    title: humanizeKey(activity.translation_key || activity.category_key || 'Coaching'),
+    iconName: activity.icon_name || '',
+    qualification: row.qualification_name || '',
+    attainmentYear: row.attainment_year || null,
+    certificateUrl: row.certificate_url || null,
   };
 }
 
@@ -546,6 +568,7 @@ function normalizeInstructorService(row) {
     iconName: activity.icon_name || '',
     qualification: qualification.qualification_name || '',
     years: row.years_of_experience || 0,
+    attainmentYear: row.attainment_year || null,
     tags: row.tags || [],
     description: row.description || row.service_description || '',
     status: row.service_approval_status || 'Pending',
@@ -649,12 +672,22 @@ function normalizeBookedSlot(row) {
 function buildInstructorStats(coach, services, posts, reviews) {
   const years = services.map((service) => Number(service.years) || 0);
   const totalLikes = posts.reduce((sum, post) => sum + (Number(post.likes) || 0), 0);
+  const reviewCount = coach.reviewsCount || reviews.length;
+  
+  // Calculate average rating from reviews if coach.rating is missing or 0
+  let averageRating = Number(coach.rating) || 0;
+  if ((!averageRating || averageRating === 0) && reviews.length > 0) {
+    const totalRating = reviews.reduce((sum, r) => sum + (Number(r.rating) || 0), 0);
+    averageRating = totalRating / reviews.length;
+  }
+
   return {
     maxYears: years.length ? Math.max(...years) : 0,
     serviceCount: services.length,
     postCount: posts.length,
     totalLikes,
-    reviewCount: coach.reviewsCount || reviews.length,
+    reviewCount,
+    averageRating,
     sessionCount: coach.providedSessionsCount || 0,
   };
 }
