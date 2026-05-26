@@ -1,167 +1,132 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { Check, Send } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { Check, ArrowRight, Upload, MapPin, Camera, User } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
+import { submitGuideApplication } from '../lib/database';
+
+const initialForm = {
+  full_name: '',
+  email: '',
+  phone: '',
+  location: '',
+  role: 'coach',
+  bio: '',
+};
 
 export default function BecomeGuideView() {
-  const { t, i18n } = useTranslation();
-  const [step, setStep] = useState(1);
-  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const [form, setForm] = useState(initialForm);
+  const [status, setStatus] = useState('idle');
+  const [error, setError] = useState('');
 
-  const steps = [
-    { id: 1, title: t('becomeGuide.steps.info'), icon: <User /> },
-    { id: 2, title: t('becomeGuide.steps.location'), icon: <MapPin /> },
-    { id: 3, title: t('becomeGuide.steps.photos'), icon: <Camera /> },
-    { id: 4, title: t('becomeGuide.steps.verify'), icon: <Check /> }
-  ];
+  const updateField = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setStatus('submitting');
+    setError('');
+    const result = await submitGuideApplication({
+      ...form,
+      source: 'platform_skeleton',
+      submitted_at: new Date().toISOString(),
+    });
+
+    if (result.error) {
+      setStatus('error');
+      setError(result.error);
+      return;
+    }
+
+    setStatus('success');
+    setForm(initialForm);
+  };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="pt-32 pb-32 px-6 md:px-12 max-w-4xl mx-auto"
+    <motion.section
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mx-auto grid max-w-7xl gap-8 px-5 py-10 md:px-8 md:py-14 lg:grid-cols-[0.9fr_1.1fr]"
     >
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold mb-4">{t('becomeGuideCta.title')}</h1>
-        <p className="text-gnd-gray text-lg max-w-2xl mx-auto">
-          {t('becomeGuideCta.desc')}
-        </p>
-      </div>
-
-      {/* Progress Bar */}
-      <div className="flex justify-between items-center mb-16 relative">
-        <div className="absolute top-1/2 left-0 right-0 h-1 bg-gray-100 -translate-y-1/2 z-0"></div>
-        <div 
-          className="absolute top-1/2 left-0 h-1 bg-gnd-red -translate-y-1/2 z-0 transition-all duration-500"
-          style={{ width: `${((step - 1) / (steps.length - 1)) * 100}%` }}
-        ></div>
-        {steps.map((s) => (
-          <div key={s.id} className="relative z-10 flex flex-col items-center gap-2">
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ${step >= s.id ? 'bg-gnd-red text-white shadow-lg scale-110' : 'bg-white border-2 border-gray-200 text-gray-400'}`}>
-              {step > s.id ? <Check size={20} /> : s.icon}
+      <div>
+        <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-gnd-red">{t('becomeGuide.eyebrow')}</p>
+        <h1 className="text-4xl font-black tracking-tight md:text-6xl">{t('becomeGuide.title')}</h1>
+        <p className="mt-5 max-w-xl text-base leading-7 text-gnd-gray">{t('becomeGuide.subtitle')}</p>
+        <div className="mt-10 grid gap-3">
+          {['profile', 'coverage', 'verification'].map((key) => (
+            <div key={key} className="flex gap-3 rounded-lg bg-white p-4">
+              <Check className="text-gnd-red" size={20} />
+              <div>
+                <h2 className="text-sm font-black">{t(`becomeGuide.checklist.${key}.title`)}</h2>
+                <p className="mt-1 text-sm leading-6 text-gnd-gray">{t(`becomeGuide.checklist.${key}.body`)}</p>
+              </div>
             </div>
-            <span className={`text-xs font-bold uppercase tracking-wider ${step >= s.id ? 'text-gnd-red' : 'text-gray-400'}`}>
-              {s.title}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Form Area */}
-      <div className="bg-white p-8 md:p-12 rounded-[32px] shadow-2xl border border-gray-50 overflow-hidden">
-        <AnimatePresence mode="wait">
-          {step === 1 && (
-            <motion.div 
-              key="step1"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
-            >
-              <h2 className="text-2xl font-bold mb-6">{t('becomeGuide.form.title')}</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-gnd-dark">{t('becomeGuide.form.name')}</label>
-                  <input type="text" placeholder={t('becomeGuide.form.namePlaceholder')} className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-transparent focus:bg-white focus:border-gnd-red transition-all" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-gnd-dark">{t('becomeGuide.form.email')}</label>
-                  <input type="email" placeholder={t('becomeGuide.form.emailPlaceholder')} className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-transparent focus:bg-white focus:border-gnd-red transition-all" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-gnd-dark">{t('becomeGuide.form.bio')}</label>
-                <textarea rows="4" placeholder={t('becomeGuide.form.bioPlaceholder')} className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-transparent focus:bg-white focus:border-gnd-red transition-all"></textarea>
-              </div>
-            </motion.div>
-          )}
-
-          {step === 2 && (
-            <motion.div 
-              key="step2"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
-            >
-              <h2 className="text-2xl font-bold mb-6">{t('becomeGuide.form.locationTitle')}</h2>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-gnd-dark">{t('becomeGuide.form.city')}</label>
-                  <div className="relative">
-                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input type="text" placeholder={t('becomeGuide.form.cityPlaceholder')} className="w-full pl-12 pr-4 py-3 rounded-xl bg-gray-50 border border-transparent focus:bg-white focus:border-gnd-red transition-all" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-gnd-dark">{t('becomeGuide.form.specialties')}</label>
-                  <div className="flex flex-wrap gap-2">
-                    {['Food', 'Photography', 'Hiking', 'Nightlife', 'History'].map(tag => (
-                      <button key={tag} className="px-4 py-2 rounded-full border border-gray-200 hover:border-gnd-red hover:text-gnd-red transition-all text-sm font-medium">
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {step === 3 && (
-            <motion.div 
-              key="step3"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-6 text-center"
-            >
-              <h2 className="text-2xl font-bold mb-6">{t('becomeGuide.form.vibeTitle')}</h2>
-              <div className="border-2 border-dashed border-gray-200 rounded-[32px] p-12 hover:border-gnd-red hover:bg-red-50/30 transition-all group cursor-pointer">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-gnd-red group-hover:text-white transition-all">
-                  <Upload size={24} />
-                </div>
-                <p className="font-bold text-lg mb-1">{t('becomeGuide.form.uploadTitle')}</p>
-                <p className="text-gnd-gray">{t('becomeGuide.form.uploadDesc')}</p>
-              </div>
-            </motion.div>
-          )}
-
-          {step === 4 && (
-            <motion.div 
-              key="step4"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-6 text-center"
-            >
-              <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Check size={40} />
-              </div>
-              <h2 className="text-3xl font-bold mb-2">{t('becomeGuide.form.finishTitle')}</h2>
-              <p className="text-gnd-gray max-md mx-auto">
-                {t('becomeGuide.form.finishDesc')}
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="flex justify-between mt-12 pt-8 border-t border-gray-100">
-          <button 
-            onClick={() => setStep(s => Math.max(1, s - 1))}
-            className={`px-8 py-3 rounded-full font-bold text-gnd-dark hover:bg-gray-100 transition-all ${step === 1 ? 'invisible' : ''}`}
-          >
-            {t('becomeGuide.form.back')}
-          </button>
-          <button 
-            onClick={() => step === 4 ? navigate(`/${i18n.language}`) : setStep(s => Math.min(4, s + 1))}
-            className="flex items-center gap-2 bg-gnd-red text-white px-10 py-3 rounded-full font-bold hover:bg-gnd-coral transition-colors shadow-lg shadow-red-100"
-          >
-            {step === 4 ? t('becomeGuide.form.finish') : t('becomeGuide.form.continue')}
-            {step < 4 && <ArrowRight size={18} />}
-          </button>
+          ))}
         </div>
       </div>
-    </motion.div>
+
+      <form onSubmit={handleSubmit} className="rounded-lg bg-white p-5 md:p-7">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label={t('becomeGuide.form.name')} value={form.full_name} onChange={(value) => updateField('full_name', value)} required />
+          <Field label={t('becomeGuide.form.email')} type="email" value={form.email} onChange={(value) => updateField('email', value)} required />
+          <Field label={t('becomeGuide.form.phone')} value={form.phone} onChange={(value) => updateField('phone', value)} />
+          <Field label={t('becomeGuide.form.location')} value={form.location} onChange={(value) => updateField('location', value)} required />
+          <label className="grid gap-2">
+            <span className="text-sm font-black">{t('becomeGuide.form.role')}</span>
+            <select
+              value={form.role}
+              onChange={(event) => updateField('role', event.target.value)}
+              className="h-12 rounded-lg bg-gnd-cream px-4 text-sm font-semibold outline-none focus:ring-2 focus:ring-gnd-red/20"
+            >
+              <option value="coach">{t('explore.roles.coach')}</option>
+              <option value="guide">{t('explore.roles.guide')}</option>
+              <option value="companion">{t('explore.roles.companion')}</option>
+            </select>
+          </label>
+          <label className="grid gap-2 md:col-span-2">
+            <span className="text-sm font-black">{t('becomeGuide.form.bio')}</span>
+            <textarea
+              rows="5"
+              value={form.bio}
+              onChange={(event) => updateField('bio', event.target.value)}
+              className="rounded-lg bg-gnd-cream px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-gnd-red/20"
+            />
+          </label>
+        </div>
+
+        {status === 'error' && (
+          <p className="mt-5 rounded-lg bg-gnd-red/10 p-4 text-sm leading-6 text-gnd-red">
+            {t('becomeGuide.form.schemaPending')}
+          </p>
+        )}
+        {error && <p className="mt-3 max-h-24 overflow-auto text-xs text-gnd-gray">{error}</p>}
+        {status === 'success' && (
+          <p className="mt-5 rounded-lg bg-gnd-cream p-4 text-sm font-bold text-gnd-red">{t('becomeGuide.form.success')}</p>
+        )}
+
+        <button
+          type="submit"
+          disabled={status === 'submitting'}
+          className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-gnd-red px-5 py-4 text-sm font-black text-white disabled:opacity-60"
+        >
+          <Send size={18} />
+          {status === 'submitting' ? t('states.saving') : t('becomeGuide.form.submit')}
+        </button>
+      </form>
+    </motion.section>
+  );
+}
+
+function Field({ label, value, onChange, type = 'text', required = false }) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-sm font-black">{label}</span>
+      <input
+        type={type}
+        value={value}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-12 rounded-lg bg-gnd-cream px-4 text-sm font-semibold outline-none focus:ring-2 focus:ring-gnd-red/20"
+      />
+    </label>
   );
 }

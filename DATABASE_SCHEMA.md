@@ -89,20 +89,84 @@ Transaction records for scheduled lessons.
 | `learner_id` | `uuid` | YES | - | FK -> `users.id` |
 | `service_id` | `uuid` | YES | - | FK -> `instructor_services.id` |
 | `lesson_date` | `date` | NO | - | |
+| `start_time_utc` | `time` | NO | - | Stored as selected start time in current MVP UI |
+| `duration_hours` | `integer` | NO | - | |
+| `group_size` | `integer` | NO | - | |
+| `skill_level_booked` | `text` | NO | - | |
+| `location_details` | `text` | YES | - | Learner-entered address or meeting-point detail |
 | `total_price` | `integer` | NO | - | |
 | `status` | `text` | YES | `'Pending'` | |
+| `cancelled_at` | `timestamptz` | YES | - | |
 
-### 8. `posts`
+### 8. `instructor_availability`
+Weekly recurring instructor availability windows.
+| Column | Type | Nullable | Default | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | `uuid` | NO | `gen_random_uuid()` | Primary Key |
+| `instructor_id` | `uuid` | NO | - | FK -> `instructor_profiles.id` |
+| `day_of_week` | `integer` | NO | - | 0 = Sunday, 6 = Saturday |
+| `start_time` | `time` | NO | - | Local instructor time |
+| `end_time` | `time` | NO | - | Local instructor time |
+| `is_active` | `boolean` | YES | `true` | |
+| `created_at` | `timestamptz` | YES | `now()` | |
+
+### 9. `instructor_availability_overrides`
+Date-specific availability changes.
+| Column | Type | Nullable | Default | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | `uuid` | NO | `gen_random_uuid()` | Primary Key |
+| `instructor_id` | `uuid` | NO | - | FK -> `instructor_profiles.id` |
+| `date` | `date` | YES | - | Override date when present |
+| `start_time` | `time` | YES | - | Override start time |
+| `end_time` | `time` | YES | - | Override end time |
+| `is_available` | `boolean` | YES | - | Whether this date is bookable |
+| `reason` | `text` | YES | - | Optional note |
+
+### 10. `posts`
 Social feed content created by instructors.
 | Column | Type | Nullable | Default | Notes |
 | :--- | :--- | :--- | :--- | :--- |
 | `id` | `uuid` | NO | `gen_random_uuid()` | Primary Key |
 | `instructor_id` | `uuid` | YES | - | FK -> `instructor_profiles.id` |
+| `location_id` | `uuid` | YES | - | FK -> `locations.id` |
 | `media_url` | `text` | NO | - | Main image/video |
 | `likes_count` | `integer` | YES | `0` | |
+| `comments_count` | `integer` | NO | `0` | Denormalized visible comments count |
 | `approval_status` | `text` | YES | `'pending'` | |
 
-### 9. `messages`
+### 11. `post_likes`
+DB-backed post like state.
+| Column | Type | Nullable | Default | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | `uuid` | NO | `gen_random_uuid()` | Primary Key |
+| `user_id` | `uuid` | NO | - | FK -> `users.id` |
+| `post_id` | `uuid` | NO | - | FK -> `posts.id` |
+| `created_at` | `timestamptz` | YES | `now()` | |
+
+### 12. `saved_posts`
+DB-backed saved post state.
+| Column | Type | Nullable | Default | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | `uuid` | NO | `gen_random_uuid()` | Primary Key |
+| `user_id` | `uuid` | NO | - | FK -> `users.id` |
+| `post_id` | `uuid` | NO | - | FK -> `posts.id` |
+| `created_at` | `timestamptz` | YES | `now()` | |
+
+### 13. `post_comments`
+DB-backed comments for posts.
+| Column | Type | Nullable | Default | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | `uuid` | NO | `gen_random_uuid()` | Primary Key |
+| `post_id` | `uuid` | NO | - | FK -> `posts.id` |
+| `user_id` | `uuid` | NO | - | FK -> `users.id` |
+| `parent_comment_id` | `uuid` | YES | - | FK -> `post_comments.id` for replies |
+| `body` | `text` | NO | - | Comment text |
+| `status` | `text` | NO | `'visible'` | `visible`, `hidden`, or `deleted` |
+| `created_at` | `timestamptz` | NO | `now()` | |
+| `updated_at` | `timestamptz` | NO | `now()` | |
+| `deleted_at` | `timestamptz` | YES | - | Soft-delete marker |
+
+### 14. `messages`
 In-app communication linked to bookings.
 | Column | Type | Nullable | Default | Notes |
 | :--- | :--- | :--- | :--- | :--- |
@@ -111,7 +175,7 @@ In-app communication linked to bookings.
 | `sender_id` | `uuid` | YES | - | FK -> `users.id` |
 | `text_content` | `text` | YES | - | |
 
-### 10. `reviews`
+### 15. `reviews`
 User feedback for completed bookings.
 | Column | Type | Nullable | Default | Notes |
 | :--- | :--- | :--- | :--- | :--- |
@@ -128,4 +192,4 @@ User feedback for completed bookings.
 - **Services** have multiple **Pricing** tiers and **Media**.
 - **Learners** (Users) create **Bookings** for **Services**.
 - **Bookings** generate **Messages** and **Reviews**.
-- **Instructors** create **Posts** which can be **Saved** by **Users**.
+- **Instructors** create **Posts** which can be **Liked**, **Saved**, and **Commented on** by **Users**.

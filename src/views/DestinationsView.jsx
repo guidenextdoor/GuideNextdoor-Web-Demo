@@ -1,54 +1,67 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, ArrowRight } from 'lucide-react';
+import { ArrowRight, DatabaseZap, MapPin } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { MOCK_DESTINATIONS } from '../data/mockData.jsx';
 import { motion } from 'framer-motion';
+import { fetchLocations } from '../lib/database';
 
 export default function DestinationsView() {
   const { t, i18n } = useTranslation();
+  const [state, setState] = useState({ loading: true, data: [], error: null, tableName: '' });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLocations().then((result) => {
+      if (!cancelled) setState({ loading: false, data: result.data, error: result.error, tableName: result.tableName });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="pt-32 pb-20 px-6 md:px-12 max-w-7xl mx-auto"
+    <motion.section
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mx-auto max-w-7xl px-5 py-10 md:px-8 md:py-14"
     >
-      <div className="mb-12">
-        <h1 className="text-4xl font-bold mb-4">{t('destinations.title')}</h1>
-        <p className="text-gnd-gray text-lg max-w-2xl">
-          {t('destinations.subtitle')}
-        </p>
+      <div className="mb-9 max-w-3xl">
+        <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-gnd-red">{t('destinations.eyebrow')}</p>
+        <h1 className="text-4xl font-black tracking-tight md:text-6xl">{t('destinations.title')}</h1>
+        <p className="mt-4 text-base leading-7 text-gnd-gray">{t('destinations.subtitle')}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {MOCK_DESTINATIONS.map((dest) => (
-          <Link 
-            to={`/${i18n.language}/explore?city=${dest.id}`} 
-            key={dest.id}
-            className="group relative h-80 rounded-[32px] overflow-hidden shadow-xl"
-          >
-            <img 
-              src={dest.img} 
-              alt={t(dest.nameKey)} 
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
-            <div className="absolute bottom-8 left-8 text-white">
-              <h2 className="text-3xl font-bold mb-2">{t(dest.nameKey)}</h2>
-              <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1 text-sm font-medium bg-white/20 backdrop-blur-md px-3 py-1 rounded-full">
-                  <MapPin size={14} /> {dest.count} Guides
-                </span>
-                <span className="flex items-center gap-2 text-sm font-bold group-hover:gap-3 transition-all">
-                  {t('destinations.viewGuides')} <ArrowRight size={18} />
-                </span>
-              </div>
+      {state.error && (
+        <div className="mb-6 rounded-lg bg-white p-5">
+          <div className="mb-3 flex items-center gap-2 text-gnd-red">
+            <DatabaseZap size={18} />
+            <span className="text-sm font-black">{t('states.schemaPending')}</span>
+          </div>
+          <p className="text-sm leading-6 text-gnd-gray">{t('states.schemaPendingBody', { table: state.tableName })}</p>
+        </div>
+      )}
+
+      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+        {state.loading && [1, 2, 3].map((item) => <div key={item} className="h-56 animate-pulse rounded-lg bg-white" />)}
+        {!state.loading && !state.error && state.data.map((location) => (
+          <Link key={location.id} to={`/${i18n.language}/explore?location=${location.id}`} className="group rounded-lg bg-white p-6">
+            <MapPin className="mb-12 text-gnd-red" size={30} />
+            <h2 className="text-3xl font-black group-hover:text-gnd-red">{location.name}</h2>
+            <p className="mt-2 text-sm font-bold text-gnd-gray">{location.country || t('destinations.countryPending')}</p>
+            <div className="mt-8 flex items-center justify-between text-sm font-black">
+              <span>{t('destinations.counts', { coaches: location.coachCount, services: location.serviceCount })}</span>
+              <ArrowRight size={18} />
             </div>
           </Link>
         ))}
       </div>
-    </motion.div>
+
+      {!state.loading && !state.error && state.data.length === 0 && (
+        <div className="rounded-lg bg-white p-10">
+          <h2 className="text-2xl font-black">{t('destinations.emptyTitle')}</h2>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-gnd-gray">{t('destinations.emptyBody')}</p>
+        </div>
+      )}
+    </motion.section>
   );
 }

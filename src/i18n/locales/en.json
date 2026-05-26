@@ -1,129 +1,312 @@
 {
+  "meta": {
+    "title": "GuideNextdoor - Local coaching and companion platform",
+    "description": "Find verified local coaches, guides, and companions for sports learning and city experiences."
+  },
   "nav": {
+    "home": "Home",
     "explore": "Explore",
-    "destinations": "Destinations",
-    "becomeGuide": "Become a Guide",
-    "login": "Log In",
-    "signup": "Sign Up"
+    "destinations": "Locations",
+    "sessions": "Sessions",
+    "messages": "Messages",
+    "becomeGuide": "Become a Coach",
+    "login": "Log in",
+    "language": "EN",
+    "menu": "Menu",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu"
   },
-  "hero": {
-    "ratingTag": "Loved by 10,000+ explorers 🌍",
-    "title": "Explore the world like a local friend.",
-    "subtitle": "Connect with local coaches, guides, and travel companions. Experience cities beyond the tourist traps.",
-    "findBtn": "Find Guides",
-    "becomeBtn": "Become a Guide",
-    "foundGuide": "found a guide!",
-    "slides": [
-      { "author": "Kenji Y.", "event": "Tokyo Photo Walk" },
-      { "author": "Sarah L.", "event": "Bangkok Street Food" },
-      { "author": "Wei C.", "event": "Taipei Night Hike" },
-      { "author": "Emma W.", "event": "Seoul Cafe Tour" }
-    ]
+  "states": {
+    "loading": "Loading",
+    "saving": "Saving",
+    "loadingDatabase": "Loading from Supabase.",
+    "schemaPending": "Database schema pending",
+    "schemaPendingShort": "The current Supabase project does not expose the expected GuideNextdoor tables yet.",
+    "schemaPendingBody": "This screen is wired to Supabase and tried the {{table}} resource. Once the GuideNextdoor schema and public RLS policies are available, this page will render live records without mock data."
   },
-  "howItWorks": {
-    "title": "Your Journey Starts Here ✨",
-    "step1": { "title": "Choose Destination", "desc": "Pick where you want to go and what you want to experience." },
-    "step2": { "title": "Find Local Experts", "desc": "Browse profiles of vetted local guides and companions." },
-    "step3": { "title": "Explore Together", "desc": "Meet up and discover the hidden gems of the city." }
+  "auth": {
+    "eyebrow": "Account access",
+    "title": "Log in to GuideNextdoor",
+    "signupTitle": "Create your GuideNextdoor account",
+    "subtitle": "Use Google or an email magic link. Public Explore remains open, while booking actions and instructor schedule edits require a Supabase session.",
+    "loginTab": "Log in",
+    "signupTab": "Sign up",
+    "loginGoogle": "Continue with Google",
+    "signupGoogle": "Sign up with Google",
+    "orEmail": "or email",
+    "email": "Email",
+    "emailPlaceholder": "you@example.com",
+    "sendLink": "Send magic link",
+    "signupEmail": "Send sign-up link",
+    "checkEmail": "Check your email for the login link.",
+    "checkSignupEmail": "Check your email for the sign-up link.",
+    "sendFailed": "Could not send the login link. Please check Supabase Auth settings and try again.",
+    "signupFailed": "Could not send the sign-up link. Please check Supabase Auth settings and try again.",
+    "consumeFailed": "Could not finish login from this link.",
+    "signedIn": "You are logged in.",
+    "signedOut": "You are logged out.",
+    "sessionReady": "Private database actions can now use your Supabase session.",
+    "goDashboard": "Go to dashboard",
+    "signOut": "Sign out",
+    "backExplore": "Back to Explore"
   },
-  "featured": {
-    "title": "Meet Your Local Besties 👋",
-    "subtitle": "Skip the tourist traps. Hang out with locals who know the real city.",
-    "viewAll": "View All"
-  },
-  "categories": {
-    "title": "Pick Your Vibe 🎯",
-    "items": {
-      "food": "Food & Drinks",
-      "photo": "Photography",
-      "hike": "Outdoor & Hike",
-      "cafe": "Cafe Hopping",
-      "night": "Nightlife"
+  "home": {
+    "eyebrow": "Sports coaching first, local companion second",
+    "title": "A database-backed platform for learning with locals.",
+    "subtitle": "GuideNextdoor helps learners discover verified coaches, local guides, and companions. This rebuild starts with the English product skeleton and keeps every screen wired for Supabase data.",
+    "primaryAction": "Start exploring",
+    "secondaryAction": "Apply as coach",
+    "opsLabel": "Live data layer",
+    "opsTitle": "Platform health",
+    "metrics": {
+      "coaches": "Coaches loaded",
+      "services": "Services loaded",
+      "locations": "Locations loaded"
+    },
+    "pillars": {
+      "discover": {
+        "eyebrow": "01",
+        "title": "Explore",
+        "body": "Browse verified coaches by role, location, and learning need. We will deepen this page first."
+      },
+      "coordinate": {
+        "eyebrow": "02",
+        "title": "Coordinate",
+        "body": "Sessions and messages are reserved as real workflow surfaces, not static marketing sections."
+      },
+      "verify": {
+        "eyebrow": "03",
+        "title": "Verify",
+        "body": "Public visibility should depend on admin verification and database policies, not front-end flags alone."
+      }
     }
   },
-  "socialProof": { "title": "Stories from Travelers" },
-  "becomeGuideCta": {
-    "title": "Share your city with the world.",
-    "desc": "Turn your passion for your hometown into a flexible income. Join thousands of locals who are hosting unique experiences.",
-    "btn": "Become a Guide"
-  },
-  "footer": {
-    "desc": "Discover the world through the eyes of a local. Redefining travel for the curious and the bold.",
-    "about": "About",
-    "faq": "FAQ",
-    "terms": "Terms",
-    "privacy": "Privacy",
-    "rights": "All rights reserved."
-  },
-  "guideRoles": {
-    "food": "Foodie Guide",
-    "photo": "Street Photographer",
-    "hike": "Hiking Coach",
-    "culture": "Culture Expert",
-    "night": "Nightlife Guru",
-    "fitness": "Fitness Coach",
-    "cafe": "Cafe Hopper"
+  "explore": {
+    "eyebrow": "Explore",
+    "title": "Explore posts.",
+    "postWallTitle": "Post wall",
+    "subtitle": "Browse community posts from local coaches, guides, and learners.",
+    "searchPlaceholder": "Search posts by activity, place, caption, or hashtag",
+    "filterButton": "Search",
+    "resultCount": "{{count}} results",
+    "postCount": "{{count}} posts",
+    "storyRailLabel": "Live community",
+    "storyRailTitle": "Coaches nearby",
+    "nearbyTitle": "People to learn with",
+    "nearbyBody": "Verified instructors and local companions from the live GuideNextdoor database.",
+    "newRating": "New",
+    "sourceLabel": "GuideNextdoor",
+    "localLabel": "Local",
+    "locationPending": "Location",
+    "pendingBio": "Profile details are waiting for the GuideNextdoor database record.",
+    "verified": "Verified",
+    "emptyTitle": "No posts yet",
+    "emptyBody": "The Explore interface is ready. It will populate as soon as verified coach records are available in Supabase.",
+    "postWallEmptyBody": "Approved posts from Supabase will appear here.",
+    "postWallRlsBody": "The post wall is connected to Supabase, but posts could not be loaded right now.",
+    "noSearchResultsTitle": "No posts match that search",
+    "noSearchResultsBody": "Try a broader activity, place, caption, or hashtag.",
+    "loginRequired": "Log in to like or save posts.",
+    "interactionFailed": "Could not update this post. Please try again.",
+    "dismiss": "Dismiss",
+    "closePost": "Close post",
+    "save": "Save",
+    "messageCta": "Message",
+    "viewSessionsCta": "View sessions",
+    "roles": {
+      "all": "All",
+      "coach": "Coaches",
+      "guide": "Guides",
+      "companion": "Companions"
+    }
   },
   "destinations": {
-    "title": "Popular Destinations",
-    "subtitle": "Discover the most loved cities by our community.",
-    "viewGuides": "View Guides"
+    "eyebrow": "Coverage",
+    "title": "Service locations",
+    "subtitle": "Coverage areas should be precise service zones from the database, not broad static city labels.",
+    "countryPending": "Country pending",
+    "counts": "{{coaches}} coaches / {{services}} services",
+    "emptyTitle": "No locations published yet",
+    "emptyBody": "Once service coverage locations exist in Supabase, this page will route learners into filtered Explore results."
+  },
+  "profile": {
+    "eyebrow": "Coach profile",
+    "aboutTitle": "About",
+    "actionsLabel": "Next step",
+    "actionsTitle": "Coordinate a session",
+    "bookAction": "Request session",
+    "viewSessions": "View sessions",
+    "messageAction": "Message",
+    "noPayment": "No in-app payment is required in this MVP skeleton.",
+    "verified": "Verified coach",
+    "years": "years",
+    "tabs": {
+      "posts": "Posts",
+      "credentials": "Credentials",
+      "sessions": "Sessions",
+      "reviews": "Reviews"
+    },
+    "stats": {
+      "years": "Years exp",
+      "services": "Services",
+      "sessions": "Sessions",
+      "reviews": "Reviews",
+      "likes": "Likes"
+    },
+    "credentials": {
+      "verification": "Verification",
+      "verificationBody": "Public profile visibility should depend on admin verification and approved service records.",
+      "pending": "Verification pending",
+      "experience": "Experience and qualifications",
+      "noQualification": "Qualification pending"
+    },
+    "sessions": {
+      "from": "From",
+      "pricePending": "Price pending",
+      "requestBased": "Request based",
+      "descriptionPending": "Service details are waiting for the instructor record.",
+      "availabilityTitle": "Availability",
+      "weeklyCalendar": "Weekly calendar",
+      "availabilityBody": "These windows come from the instructor availability table. Booking requests should still be confirmed by the instructor.",
+      "noAvailability": "No public availability is currently listed.",
+      "overrides": "Date changes",
+      "unavailable": "Unavailable"
+    },
+    "booking": {
+      "eyebrow": "Booking request",
+      "title": "Request a session",
+      "date": "Preferred date",
+      "chooseDate": "Choose a date",
+      "previousMonth": "Prev",
+      "nextMonth": "Next",
+      "monthPicker": "Choose month",
+      "time": "Start time",
+      "chooseStart": "Choose a start time",
+      "customStart": "Custom start time",
+      "noTimes": "No listed times",
+      "allTimesBooked": "All listed times are currently booked for this date.",
+      "blockedTimes": "Booked times",
+      "availableWindows": "Available windows",
+      "available": "Available",
+      "unavailable": "Unavailable",
+      "slotUnit": "slot",
+      "slotsUnit": "slots",
+      "noSlotsShort": "No slots",
+      "bookedUnit": "booked",
+      "details": "Request details",
+      "selectedSlot": "Selected slot",
+      "groupSize": "Group size",
+      "skillLevel": "Skill level",
+      "duration": "Duration",
+      "hourUnit": "hour",
+      "hoursUnit": "hours",
+      "estimatedTotal": "Estimated total",
+      "locationDetails": "Address or location details",
+      "locationPlaceholder": "e.g. hotel lobby, slope entrance, sports centre, or meeting point",
+      "note": "Message to coach",
+      "notePlaceholder": "Share your goal, current level, or preferred meeting point.",
+      "cancel": "Cancel",
+      "submit": "Send request",
+      "success": "Booking request sent.",
+      "loginRequired": "Log in before sending a booking request.",
+      "submitFailed": "Could not send this booking request. Please try again.",
+      "validationError": "Choose a date, time, and skill level before sending."
+    },
+    "reviews": {
+      "summary": "Review summary",
+      "count": "{{count}} total reviews"
+    },
+    "empty": {
+      "postsTitle": "No posts yet",
+      "postsBody": "Approved posts from this instructor will appear here.",
+      "credentialsBody": "Approved services and qualifications will appear here once available.",
+      "sessionsTitle": "No sessions yet",
+      "sessionsBody": "Approved services and pricing will appear here once available.",
+      "reviewsTitle": "No reviews yet",
+      "reviewsBody": "Completed-session reviews will appear here."
+    },
+    "notFoundTitle": "Profile not available",
+    "notFoundBody": "This profile could not be loaded from the current Supabase project.",
+    "backToExplore": "Back to Explore"
   },
   "becomeGuide": {
-    "steps": {
-      "info": "Basic Info",
-      "location": "Location",
-      "photos": "Photos",
-      "verify": "Verify"
+    "eyebrow": "Coach onboarding",
+    "title": "Apply to be visible on GuideNextdoor.",
+    "subtitle": "Applications are submitted to Supabase and should later flow into an admin verification queue before public visibility.",
+    "checklist": {
+      "profile": {
+        "title": "Profile basics",
+        "body": "Collect identity, contact, and coaching focus first."
+      },
+      "coverage": {
+        "title": "Coverage area",
+        "body": "Store exact service locations so Explore can match learners accurately."
+      },
+      "verification": {
+        "title": "Admin review",
+        "body": "Keep public listing visibility gated until verification is complete."
+      }
     },
     "form": {
-      "title": "Tell us about yourself",
-      "name": "Full Name",
-      "namePlaceholder": "Your name",
-      "email": "Email Address",
-      "emailPlaceholder": "email@example.com",
-      "bio": "Your Bio",
-      "bioPlaceholder": "What makes you a great guide?",
-      "locationTitle": "Where are you based?",
-      "city": "City",
-      "cityPlaceholder": "e.g. Hong Kong, Tokyo",
-      "specialties": "Specialties",
-      "vibeTitle": "Show your vibe",
-      "uploadTitle": "Upload photos",
-      "uploadDesc": "Drag and drop or click to browse",
-      "finishTitle": "Almost there!",
-      "finishDesc": "Your application is ready to be reviewed. Our team will verify your identity and get back to you within 24-48 hours.",
-      "back": "Back",
-      "continue": "Continue",
-      "finish": "Finish"
+      "name": "Name",
+      "email": "Email",
+      "phone": "Phone",
+      "location": "Location",
+      "role": "Role",
+      "bio": "Short bio",
+      "submit": "Submit application",
+      "success": "Application submitted.",
+      "schemaPending": "The form is wired to Supabase, but the current project does not expose an application table that accepts this payload yet."
     }
   },
-  "tags": {
-    "photography": "Photography",
-    "hiddenSpots": "Hidden Spots",
-    "streetFood": "Street Food",
-    "nightlife": "Nightlife",
-    "nature": "Nature",
-    "fitness": "Fitness",
-    "temples": "Temples",
-    "markets": "Markets",
-    "barHopping": "Bar Hopping",
-    "clubs": "Clubs",
-    "localEats": "Local Eats",
-    "history": "History",
-    "coffee": "Coffee",
-    "art": "Art",
-    "shrines": "Shrines",
-    "teaCeremony": "Tea Ceremony"
+  "workspace": {
+    "sessions": {
+      "eyebrow": "Scheduling",
+      "title": "Sessions",
+      "subtitle": "A reserved workflow for learner requests, coach availability, and session status.",
+      "primaryAction": "New request",
+      "emptyTitle": "No sessions yet",
+      "emptyBody": "Session records will appear here once the booking workflow is connected."
+    },
+    "messages": {
+      "eyebrow": "Inbox",
+      "title": "Messages",
+      "subtitle": "A reserved workflow for learner and coach coordination.",
+      "primaryAction": "New message",
+      "emptyTitle": "No messages yet",
+      "emptyBody": "Message threads will appear here once the chat tables or RPC contracts are connected."
+    },
+    "schedule": {
+      "eyebrow": "Instructor schedule",
+      "title": "Availability",
+      "subtitle": "Manage recurring weekly windows and see pending or confirmed bookings that block learner calendar slots.",
+      "month": "Month",
+      "calendarHint": "White windows are open availability. Red blocks are pending or confirmed bookings.",
+      "recurring": "Recurring availability",
+      "weeklyWindows": "Weekly windows",
+      "readOnly": "Read only",
+      "loginPrompt": "Log in as the instructor to add or delete availability windows. Without login, this dashboard stays read-only.",
+      "day": "Day",
+      "start": "Start",
+      "end": "End",
+      "addWindow": "Add window",
+      "deleteWindow": "Delete window",
+      "noWindows": "No weekly availability windows yet.",
+      "windowsUnit": "windows",
+      "blocked": "Blocked time",
+      "upcomingBookings": "Upcoming bookings",
+      "noBookings": "No pending or confirmed bookings are blocking future dates.",
+      "invalidWindow": "End time must be later than start time.",
+      "loginRequired": "Log in as this instructor before editing availability.",
+      "saveFailed": "Could not save this availability window.",
+      "deleteFailed": "Could not delete this availability window.",
+      "saved": "Availability window saved.",
+      "deleted": "Availability window deleted."
+    }
   },
-  "cities": {
-    "tokyo": "Tokyo, Japan",
-    "hongkong": "Hong Kong",
-    "taipei": "Taipei, Taiwan",
-    "bangkok": "Bangkok, Thailand",
-    "seoul": "Seoul, Korea",
-    "macau": "Macau",
-    "melbourne": "Melbourne, AU",
-    "kyoto": "Kyoto, Japan"
+  "footer": {
+    "desc": "GuideNextdoor is being rebuilt as a multilingual, Supabase-backed platform. English ships first; later languages should be added by translating this locale file.",
+    "databaseReady": "Supabase env configured",
+    "databaseMissing": "Supabase env missing"
   }
 }
