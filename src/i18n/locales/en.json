@@ -274,7 +274,7 @@
       "subtitle": "A reserved workflow for learner and coach coordination.",
       "primaryAction": "New message",
       "emptyTitle": "No messages yet",
-      "emptyBody": "Message threads will appear here once the chat tables or RPC contracts are connected."
+      "emptyBody": "Your conversations will appear here once you send or receive booking requests."
     },
     "schedule": {
       "eyebrow": "Instructor schedule",

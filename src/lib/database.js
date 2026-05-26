@@ -667,16 +667,69 @@ function humanizeKey(value) {
     .join(' ');
 }
 
-function normalizeService(row) {
-  const metadata = row.metadata || {};
-  const activity = row.ref_activities || {};
+export async function fetchUserMessages() {
+  const session = getCurrentSession();
+  if (!session) return { data: [], error: 'auth_required', tableName: 'bookings' };
+
+  const [learnerResult, instructorProfileResult] = await Promise.all([
+    queryTable('bookings', {
+      select: '*,instructor_services(instructor_profiles(users(display_name,avatar_url)),ref_activities(translation_key)),users(display_name,avatar_url)',
+      learner_id: `eq.${session.user.id}`,
+      order: 'lesson_date.desc',
+    }),
+    queryTable('instructor_profiles', {
+      user_id: `eq.${session.user.id}`,
+      select: 'id',
+      limit: '1',
+    }),
+  ]);
+
+  let data = learnerResult.data || [];
+
+  if (instructorProfileResult.data?.[0]?.id) {
+    const instructorId = instructorProfileResult.data[0].id;
+    const instructorBookings = await queryTable('bookings', {
+      select: '*,instructor_services(instructor_profiles(users(display_name,avatar_url)),ref_activities(translation_key)),users(display_name,avatar_url)',
+      'instructor_services.instructor_id': `eq.${instructorId}`,
+      order: 'lesson_date.desc',
+    });
+    if (instructorBookings.data?.length) {
+      data = [...data, ...instructorBookings.data];
+      // Deduplicate and re-sort
+      const seen = new Set();
+      data = data.filter((item) => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+      data.sort((a, b) => new Date(b.lesson_date) - new Date(a.lesson_date));
+    }
+  }
+
   return {
-    id: row.id || row.render_id,
-    title: row.title || row.name || metadata.title || activity.translation_key || activity.category_key || 'Untitled service',
-    coachName: row.coach_name || metadata.coach_name || 'GuideNextdoor coach',
-    status: row.service_approval_status || row.status || metadata.status || 'draft',
-    location: row.location || metadata.location || 'Location pending',
-    price: row.price || metadata.price || null,
+    ...learnerResult,
+    data: data.map((row) => normalizeChatRoom(row, session.user.id)),
+  };
+}
+
+function normalizeChatRoom(row, currentUserId) {
+  const service = row.instructor_services || {};
+  const instructorProfile = service.instructor_profiles || {};
+  const instructorUser = instructorProfile.users || {};
+  const activity = service.ref_activities || {};
+  const learnerUser = row.users || {};
+
+  const isLearner = row.learner_id === currentUserId;
+  const otherParty = isLearner ? instructorUser : learnerUser;
+
+  return {
+    id: row.id,
+    title: humanizeKey(activity.translation_key || 'Chat'),
+    coachName: otherParty.display_name || otherParty.username || 'GuideNextdoor user',
+    avatarUrl: otherParty.avatar_url || '',
+    location: row.lesson_date ? formatDisplayDate(row.lesson_date) : 'Pending',
+    status: row.status || 'Active',
+    lastMessage: 'Click to view conversation',
   };
 }
 

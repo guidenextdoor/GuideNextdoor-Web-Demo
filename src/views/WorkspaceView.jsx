@@ -7,6 +7,7 @@ import {
   deleteInstructorAvailabilityWindow,
   fetchInstructorSchedule,
   fetchServices,
+  fetchUserMessages,
 } from '../lib/database';
 
 const weekdayOptions = [
@@ -32,13 +33,15 @@ function GenericWorkspaceView({ type }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetchServices().then((result) => {
+    const fetcher = type === 'messages' ? fetchUserMessages : fetchServices;
+    
+    fetcher().then((result) => {
       if (!cancelled) setState({ loading: false, data: result.data, error: result.error, tableName: result.tableName });
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [type]);
 
   return (
     <motion.section
@@ -52,10 +55,12 @@ function GenericWorkspaceView({ type }) {
           <h1 className="text-4xl font-black tracking-tight md:text-6xl">{t(`workspace.${type}.title`)}</h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-gnd-gray">{t(`workspace.${type}.subtitle`)}</p>
         </div>
-        <button type="button" className="flex items-center justify-center gap-2 rounded-lg bg-gnd-red px-5 py-3 text-sm font-black text-white">
-          <Plus size={18} />
-          {t(`workspace.${type}.primaryAction`)}
-        </button>
+        {type !== 'messages' && (
+          <button type="button" className="flex items-center justify-center gap-2 rounded-lg bg-gnd-red px-5 py-3 text-sm font-black text-white">
+            <Plus size={18} />
+            {t(`workspace.${type}.primaryAction`)}
+          </button>
+        )}
       </div>
 
       <div className="grid gap-4">

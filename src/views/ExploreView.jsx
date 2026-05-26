@@ -216,73 +216,106 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
   const imageUrl = post.imageUrl || fallbackImages[0];
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-gnd-dark/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-gnd-dark/80 p-4 backdrop-blur-md" onClick={onClose}>
       <motion.article
-        initial={{ opacity: 0, scale: 0.96, y: 16 }}
+        initial={{ opacity: 0, scale: 0.98, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="grid max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-[2rem] bg-white shadow-2xl md:grid-cols-[minmax(0,1.1fr)_390px]"
+        className="grid max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-[1.5rem] bg-white shadow-2xl grid-cols-[2fr_1fr] md:grid-cols-[minmax(0,1.2fr)_400px]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="bg-black">
-          <img src={imageUrl} alt={post.title} className="h-full max-h-[92vh] w-full object-contain md:object-cover" />
+        {/* Left: Media Area */}
+        <div className="flex h-full items-center justify-center bg-black border-r border-gnd-cream/10">
+          <img src={imageUrl} alt={post.title} className="h-full max-h-[90vh] w-full object-contain" />
         </div>
 
-        <div className="flex min-h-0 flex-col">
-          <header className="flex items-center justify-between gap-3 p-4">
-            <Link to={profilePath} className="flex min-w-0 items-center gap-3" onClick={onClose}>
-              <img src={post.avatarUrl || imageUrl} alt="" className="h-11 w-11 rounded-full object-cover" />
+        {/* Right: Interaction Area */}
+        <div className="flex flex-col border-l border-gnd-cream bg-white min-w-0">
+          {/* Header */}
+          <header className="flex items-center justify-between border-b border-gnd-cream p-2 md:p-4">
+            <Link to={profilePath} className="flex min-w-0 items-center gap-1.5 md:gap-3" onClick={onClose}>
+              <img src={post.avatarUrl || imageUrl} alt="" className="h-6 w-6 md:h-9 md:h-9 rounded-full border border-gnd-cream object-cover" />
               <div className="min-w-0">
-                <h2 className="truncate text-base font-black">{post.coachName}</h2>
-                <p className="mt-0.5 flex h-4 items-center gap-1 truncate text-xs font-bold text-gnd-gray">
+                <h2 className="truncate text-[10px] md:text-sm font-black text-gnd-dark">{post.coachName}</h2>
+                <p className="flex items-center gap-1 truncate text-[8px] md:text-[10px] font-black uppercase tracking-wider text-gnd-gray">
                   {post.location && (
                     <>
-                      <MapPin size={12} />
+                      <MapPin size={8} className="text-gnd-red md:w-[10px] md:h-[10px]" />
                       <span className="truncate">{post.location}</span>
                     </>
                   )}
                 </p>
               </div>
             </Link>
-            <button type="button" className="rounded-full bg-gnd-cream p-2" onClick={onClose} aria-label={t('explore.closePost')}>
-              <X size={19} />
+            <button type="button" className="rounded-full bg-gnd-cream p-1 md:p-1.5 transition hover:bg-gnd-red hover:text-white" onClick={onClose} aria-label={t('explore.closePost')}>
+              <X size={14} className="md:w-[18px] md:h-[18px]" />
             </button>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            <div className="flex items-center justify-between border-y border-gnd-cream py-3 text-gnd-gray">
-              <div className="flex items-center gap-5">
-                <button type="button" className={`flex items-center gap-2 text-sm font-black ${post.liked ? 'text-gnd-red' : ''}`} onClick={onLike}>
-                  <Heart size={22} className={post.liked ? 'fill-current' : ''} />
-                  {post.likes}
-                </button>
-                <span className="flex items-center gap-2 text-sm font-black">
-                  <MessageCircle size={22} />
-                  {post.comments}
-                </span>
+          {/* Scrollable Content (Caption + Comments) */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3 md:px-4 md:py-5">
+            <div className="flex gap-2 md:gap-3">
+              <Link to={profilePath} onClick={onClose} className="shrink-0 hidden sm:block">
+                <img src={post.avatarUrl || imageUrl} alt="" className="h-7 w-7 md:h-9 md:h-9 rounded-full object-cover" />
+              </Link>
+              <div className="flex-1 space-y-1 text-[11px] md:text-sm leading-relaxed">
+                <p className="text-gnd-dark">
+                  <Link to={profilePath} className="mr-1 md:mr-2 font-black" onClick={onClose}>{post.coachName}</Link>
+                  {post.caption || post.title}
+                </p>
+                {post.hashtags?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-0.5 md:pt-1">
+                    {post.hashtags.map((tag) => (
+                      <span key={tag} className="text-[9px] md:text-xs font-bold text-blue-600 hover:underline cursor-pointer">#{tag}</span>
+                    ))}
+                  </div>
+                )}
+                <p className="pt-2 text-[8px] md:text-[10px] font-black uppercase tracking-widest text-gnd-gray">
+                  {post.displayDate}
+                </p>
               </div>
-              <button type="button" className={`flex items-center gap-2 text-sm font-black ${post.saved ? 'text-gnd-red' : ''}`} onClick={onSave}>
-                <Bookmark size={22} className={post.saved ? 'fill-current' : ''} />
-                {t('explore.save')}
-              </button>
             </div>
 
-            <p className="whitespace-pre-line text-sm leading-6 text-gnd-dark">{post.caption || post.title}</p>
-            {post.displayDate && <p className="mt-3 text-xs font-black uppercase tracking-[0.16em] text-gnd-gray">{post.displayDate}</p>}
-            {post.hashtags?.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {post.hashtags.map((tag) => (
-                  <span key={tag} className="rounded-full bg-gnd-cream px-3 py-1 text-xs font-black text-gnd-red">#{tag}</span>
-                ))}
+            {/* Placeholder for real comments */}
+            <div className="mt-4 md:mt-8 space-y-3 md:space-y-4">
+              <p className="text-[9px] md:text-[11px] font-black uppercase tracking-widest text-gnd-gray/50">{t('profile.tabs.reviews')}</p>
+              <div className="flex gap-2 md:gap-3 opacity-40">
+                <div className="h-5 w-5 md:h-8 md:w-8 rounded-full bg-gnd-cream shrink-0" />
+                <div className="space-y-1.5 flex-1 pt-0.5 md:pt-1">
+                  <div className="h-1 md:h-2 w-12 md:w-24 bg-gnd-cream rounded" />
+                  <div className="h-1 md:h-2 w-full bg-gnd-cream rounded" />
+                </div>
               </div>
-            )}
+            </div>
           </div>
 
-          <footer className="grid grid-cols-2 gap-3 p-4">
-            <button type="button" className="flex items-center justify-center gap-2 rounded-2xl bg-gnd-red px-5 py-3 text-sm font-black text-white">
-              <MessageSquare size={18} />
+          {/* Interaction Section (IG style) */}
+          <section className="border-t border-gnd-cream p-2 md:p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 md:gap-4">
+                <button type="button" className={`transition hover:scale-110 active:scale-90 ${post.liked ? 'text-gnd-red' : 'text-gnd-dark'}`} onClick={onLike}>
+                  <Heart size={20} className={`${post.liked ? 'fill-current' : ''} md:w-[26px] md:h-[26px]`} />
+                </button>
+                <button type="button" className="text-gnd-dark transition hover:scale-110">
+                  <MessageCircle size={20} className="md:w-[26px] md:h-[26px]" />
+                </button>
+              </div>
+              <button type="button" className={`transition hover:scale-110 active:scale-90 ${post.saved ? 'text-gnd-red' : 'text-gnd-dark'}`} onClick={onSave}>
+                <Bookmark size={20} className={`${post.saved ? 'fill-current' : ''} md:w-[26px] md:h-[26px]`} />
+              </button>
+            </div>
+            
+            <div className="mt-1.5 md:mt-3">
+              <p className="text-[11px] md:text-sm font-black text-gnd-dark">{post.likes} {t('home.metrics.likes') || 'likes'}</p>
+            </div>
+          </section>
+
+          {/* Footer Actions */}
+          <footer className="flex flex-col gap-1.5 border-t border-gnd-cream bg-gnd-cream/30 p-2 md:p-4">
+            <button type="button" className="flex items-center justify-center gap-1.5 md:gap-2 rounded-lg bg-gnd-red px-2 py-2 md:px-4 md:py-3 text-[9px] md:text-xs font-black text-white shadow-lg shadow-red-600/20 transition hover:bg-red-600 active:scale-[0.98]">
+              <MessageSquare size={12} className="md:w-[16px] md:h-[16px]" />
               {t('explore.messageCta')}
             </button>
-            <button type="button" className="rounded-2xl bg-gnd-dark px-5 py-3 text-sm font-black text-white">
+            <button type="button" className="rounded-lg bg-gnd-dark px-2 py-2 md:px-4 md:py-3 text-[9px] md:text-xs font-black text-white transition hover:bg-black active:scale-[0.98]">
               {t('explore.viewSessionsCta')}
             </button>
           </footer>
@@ -291,6 +324,7 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
     </div>
   );
 }
+
 
 function PostSkeleton() {
   return (
