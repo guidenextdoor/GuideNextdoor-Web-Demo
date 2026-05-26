@@ -20,7 +20,7 @@ export default function Footer() {
         <div className="flex flex-col gap-4 text-sm text-white/62 md:items-end">
           <div className="flex flex-wrap gap-4">
             <Link to={`/${i18n.language}/explore`} className="transition hover:text-white">{t('nav.explore')}</Link>
-            <Link to={`/${i18n.language}/sessions`} className="transition hover:text-white">{t('nav.sessions')}</Link>
+            <Link to={`/${i18n.language}/instructor`} className="transition hover:text-white">{t('nav.instructor')}</Link>
             <Link to={`/${i18n.language}/messages`} className="transition hover:text-white">{t('nav.messages')}</Link>
           </div>
           <div className="flex items-center gap-2">

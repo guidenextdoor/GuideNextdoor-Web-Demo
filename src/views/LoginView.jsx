@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogIn, LogOut, Mail } from 'lucide-react';
+import { Lock, LogIn, LogOut, Mail } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { consumeAuthRedirect, getCurrentSession, getOAuthLoginUrl, requestEmailLogin, signOut } from '../lib/database';
+import { consumeAuthRedirect, getCurrentSession, signInWithPassword, signOut, signUpWithPassword } from '../lib/database';
 
 export default function LoginView() {
   const { t, i18n } = useTranslation();
@@ -11,6 +11,8 @@ export default function LoginView() {
   const [session, setSession] = useState(() => getCurrentSession());
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [status, setStatus] = useState({ saving: false, error: '', notice: '' });
 
   useEffect(() => {
@@ -34,29 +36,31 @@ export default function LoginView() {
     event.preventDefault();
     setStatus({ saving: true, error: '', notice: '' });
 
-    const result = await requestEmailLogin(email, `${window.location.origin}/${i18n.language}/login`, {
-      shouldCreateUser: mode === 'signup',
-    });
+    if (mode === 'signup' && password !== confirmPassword) {
+      setStatus({ saving: false, error: t('auth.passwordMismatch'), notice: '' });
+      return;
+    }
+
+    const result = mode === 'signup'
+      ? await signUpWithPassword(email, password)
+      : await signInWithPassword(email, password);
+
     if (result.error) {
       setStatus({
         saving: false,
-        error: mode === 'signup' ? t('auth.signupFailed') : t('auth.sendFailed'),
+        error: mode === 'signup' ? t('auth.signupFailed') : t('auth.signInFailed'),
         notice: '',
       });
       return;
     }
 
-    setStatus({ saving: false, error: '', notice: mode === 'signup' ? t('auth.checkSignupEmail') : t('auth.checkEmail') });
-  };
-
-  const handleGoogle = () => {
-    const url = getOAuthLoginUrl('google', `${window.location.origin}/${i18n.language}/login`);
-    if (!url) {
-      setStatus({ saving: false, error: t('auth.sendFailed'), notice: '' });
+    if (result.data?.access_token) {
+      setSession(result.data);
+      setStatus({ saving: false, error: '', notice: t('auth.signedIn') });
       return;
     }
 
-    window.location.assign(url);
+    setStatus({ saving: false, error: '', notice: t('auth.checkSignupEmail') });
   };
 
   const handleSignOut = () => {
@@ -84,7 +88,7 @@ export default function LoginView() {
             <p className="text-sm font-black">{session.user?.email || t('auth.signedIn')}</p>
             <p className="mt-1 text-xs font-bold text-gnd-gray">{t('auth.sessionReady')}</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <button type="button" className="flex items-center justify-center gap-2 rounded-xl bg-gnd-dark px-5 py-3 text-sm font-black text-white" onClick={() => navigate(`/${i18n.language}/sessions`)}>
+              <button type="button" className="flex items-center justify-center gap-2 rounded-xl bg-gnd-dark px-5 py-3 text-sm font-black text-white" onClick={() => navigate(`/${i18n.language}/instructor`)}>
                 {t('auth.goDashboard')}
               </button>
               <button type="button" className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-black text-gnd-dark" onClick={handleSignOut}>
@@ -111,35 +115,68 @@ export default function LoginView() {
               ))}
             </div>
 
-            <button type="button" className="mt-4 flex w-full items-center justify-center gap-3 rounded-2xl border border-gnd-cream bg-white px-5 py-3 text-sm font-black text-gnd-dark transition hover:border-gnd-red" onClick={handleGoogle}>
+            <button type="button" className="mt-4 flex w-full cursor-not-allowed items-center justify-center gap-3 rounded-2xl border border-gnd-cream bg-white px-5 py-3 text-sm font-black text-gnd-gray opacity-60" disabled>
               <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-base font-black text-[#4285F4]">G</span>
               {mode === 'signup' ? t('auth.signupGoogle') : t('auth.loginGoogle')}
             </button>
+            <p className="mt-2 text-xs font-bold text-gnd-gray">{t('auth.googleUnavailable')}</p>
 
             <div className="my-5 flex items-center gap-3">
               <span className="h-px flex-1 bg-gnd-cream" />
-              <span className="text-xs font-black uppercase tracking-[0.14em] text-gnd-gray">{t('auth.orEmail')}</span>
+              <span className="text-xs font-black uppercase tracking-[0.14em] text-gnd-gray">{t('auth.emailPassword')}</span>
               <span className="h-px flex-1 bg-gnd-cream" />
             </div>
 
             <form className="grid gap-4" onSubmit={handleSubmit}>
-            <label className="grid gap-2 text-sm font-black">
-              {t('auth.email')}
-              <div className="flex items-center gap-3 rounded-2xl border border-gnd-cream px-4 py-3 focus-within:border-gnd-red">
-                <Mail size={18} className="text-gnd-gray" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
-                  placeholder={t('auth.emailPlaceholder')}
-                  required
-                />
-              </div>
-            </label>
-            <button type="submit" className="rounded-2xl bg-gnd-red px-5 py-3 text-sm font-black text-white disabled:opacity-60" disabled={status.saving}>
-              {status.saving ? t('states.saving') : mode === 'signup' ? t('auth.signupEmail') : t('auth.sendLink')}
-            </button>
+              <label className="grid gap-2 text-sm font-black">
+                {t('auth.email')}
+                <div className="flex items-center gap-3 rounded-2xl border border-gnd-cream px-4 py-3 focus-within:border-gnd-red">
+                  <Mail size={18} className="text-gnd-gray" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
+                    placeholder={t('auth.emailPlaceholder')}
+                    required
+                  />
+                </div>
+              </label>
+              <label className="grid gap-2 text-sm font-black">
+                {t('auth.password')}
+                <div className="flex items-center gap-3 rounded-2xl border border-gnd-cream px-4 py-3 focus-within:border-gnd-red">
+                  <Lock size={18} className="text-gnd-gray" />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
+                    placeholder={t('auth.passwordPlaceholder')}
+                    minLength={6}
+                    required
+                  />
+                </div>
+              </label>
+              {mode === 'signup' && (
+                <label className="grid gap-2 text-sm font-black">
+                  {t('auth.confirmPassword')}
+                  <div className="flex items-center gap-3 rounded-2xl border border-gnd-cream px-4 py-3 focus-within:border-gnd-red">
+                    <Lock size={18} className="text-gnd-gray" />
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
+                      placeholder={t('auth.confirmPasswordPlaceholder')}
+                      minLength={6}
+                      required
+                    />
+                  </div>
+                </label>
+              )}
+              <button type="submit" className="rounded-2xl bg-gnd-red px-5 py-3 text-sm font-black text-white disabled:opacity-60" disabled={status.saving}>
+                {status.saving ? t('states.saving') : mode === 'signup' ? t('auth.signupEmail') : t('auth.signIn')}
+              </button>
             </form>
           </div>
         )}

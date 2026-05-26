@@ -32,6 +32,37 @@ export function getCurrentSession() {
   return null;
 }
 
+async function getActiveSession() {
+  const session = getCurrentSession();
+  if (!session) return null;
+
+  const expiresAt = Number(session.expires_at || 0);
+  const shouldRefresh = Boolean(session.refresh_token && expiresAt && expiresAt * 1000 < Date.now() + 60_000);
+  if (!shouldRefresh) return session;
+
+  const refreshed = await refreshSession(session.refresh_token);
+  return refreshed || session;
+}
+
+async function refreshSession(refreshToken) {
+  if (!databaseStatus.hasConfig || !refreshToken) return null;
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+
+  if (!response.ok) return null;
+
+  const session = await response.json();
+  persistSession(session);
+  return session;
+}
+
 export async function consumeAuthRedirect() {
   if (typeof window === 'undefined' || !window.location.hash.includes('access_token=')) {
     return { session: getCurrentSession(), error: null };
@@ -56,18 +87,18 @@ export async function consumeAuthRedirect() {
     user: userResult.user,
   };
 
-  window.localStorage.setItem(getAuthStorageKey(), JSON.stringify(session));
+  persistSession(session);
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
 
   return { session, error: null };
 }
 
-export async function requestEmailLogin(email, redirectTo, { shouldCreateUser = false } = {}) {
+export async function signInWithPassword(email, password) {
   if (!databaseStatus.hasConfig) {
     return { error: 'missing_config' };
   }
 
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -75,10 +106,7 @@ export async function requestEmailLogin(email, redirectTo, { shouldCreateUser = 
     },
     body: JSON.stringify({
       email,
-      create_user: shouldCreateUser,
-      options: {
-        email_redirect_to: redirectTo,
-      },
+      password,
     }),
   });
 
@@ -86,7 +114,35 @@ export async function requestEmailLogin(email, redirectTo, { shouldCreateUser = 
     return { error: await response.text() };
   }
 
-  return { error: null };
+  const session = await response.json();
+  persistSession(session);
+  return { data: session, error: null };
+}
+
+export async function signUpWithPassword(email, password) {
+  if (!databaseStatus.hasConfig) {
+    return { error: 'missing_config' };
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email,
+      password,
+    }),
+  });
+
+  if (!response.ok) {
+    return { error: await response.text() };
+  }
+
+  const data = await response.json();
+  if (data.access_token) persistSession(data);
+  return { data, error: null };
 }
 
 export function getOAuthLoginUrl(provider, redirectTo) {
@@ -106,7 +162,12 @@ export function signOut() {
     .forEach((key) => window.localStorage.removeItem(key));
 }
 
-async function queryTable(tableName, searchParams = {}) {
+function persistSession(session) {
+  if (typeof window === 'undefined' || !session?.access_token || !session?.user?.id) return;
+  window.localStorage.setItem(getAuthStorageKey(), JSON.stringify(session));
+}
+
+async function queryTable(tableName, searchParams = {}, session = null) {
   if (!databaseStatus.hasConfig) {
     return { data: [], error: 'missing_config', tableName };
   }
@@ -120,7 +181,7 @@ async function queryTable(tableName, searchParams = {}) {
 
   const response = await fetch(url.toString(), {
     headers: {
-      ...buildHeaders(),
+      ...buildHeaders(session),
       Accept: 'application/json',
     },
   });
@@ -178,7 +239,7 @@ export async function fetchServices() {
 }
 
 export async function fetchInstructorSchedule() {
-  const session = getCurrentSession();
+  const session = await getActiveSession();
   const instructorResult = session
     ? await queryTable('instructor_profiles', {
         select: '*,users(*),locations(*)',
@@ -203,40 +264,61 @@ export async function fetchInstructorSchedule() {
   }
 
   const coach = normalizeCoach(fallbackResult.data[0]);
-  const [servicesResult, availabilityResult, overridesResult] = await Promise.all([
+  const [servicesResult, availabilityResult, overridesResult, postsResult, reviewsResult] = await Promise.all([
     queryTable('instructor_services', {
       select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*)',
       instructor_id: `eq.${coach.id}`,
       order: 'years_of_experience.desc',
       limit: '48',
-    }),
+    }, session),
     queryTable('instructor_availability', {
       select: '*',
       instructor_id: `eq.${coach.id}`,
       is_active: 'eq.true',
       order: 'day_of_week.asc,start_time.asc',
-    }),
+    }, session),
     queryTable('instructor_availability_overrides', {
       select: '*',
       instructor_id: `eq.${coach.id}`,
       order: 'date.asc',
       limit: '120',
-    }),
+    }, session),
+    queryTable('posts', {
+      select: '*,locations(*)',
+      instructor_id: `eq.${coach.id}`,
+      approval_status: 'eq.approved',
+      order: 'created_at.desc',
+      limit: '48',
+    }, session),
+    queryTable('reviews', {
+      select: '*,users(*),bookings(*)',
+      instructor_id: `eq.${coach.id}`,
+      order: 'created_at.desc',
+      limit: '48',
+    }, session),
   ]);
 
   const services = await attachServiceLocations(servicesResult.data.map((row) => normalizeInstructorService(row)));
-  const bookingsResult = await fetchInstructorServiceBookings(services);
+  const bookingsResult = await fetchInstructorServiceBookings(services, session);
+  const posts = postsResult.error ? [] : postsResult.data.map((row) => normalizePost(row));
+  const reviews = reviewsResult.error ? [] : reviewsResult.data.map((row) => normalizeReview(row));
+  const bookedSlots = bookingsResult.error ? [] : mapBookedSlotsToServices(bookingsResult.data, services);
 
   return {
     data: {
-      coach,
+      coach: {
+        ...coach,
+        stats: buildInstructorStats(coach, services, posts, reviews, bookedSlots),
+      },
       services,
       availability: availabilityResult.error ? [] : availabilityResult.data.map((row) => normalizeAvailability(row)),
       availabilityOverrides: overridesResult.error ? [] : overridesResult.data.map((row) => normalizeAvailabilityOverride(row)),
-      bookedSlots: bookingsResult.error ? [] : bookingsResult.data.map((row) => normalizeBookedSlot(row)),
+      bookedSlots,
+      posts,
+      reviews,
       canEdit: Boolean(session && instructorResult.data?.length),
     },
-    error: servicesResult.error || availabilityResult.error || overridesResult.error || bookingsResult.error || null,
+    error: servicesResult.error || availabilityResult.error || overridesResult.error || postsResult.error || reviewsResult.error || bookingsResult.error || null,
     tableName: servicesResult.tableName || 'instructor_services',
   };
 }
@@ -439,16 +521,16 @@ function normalizeQualification(row) {
   };
 }
 
-async function fetchInstructorServiceBookings(services) {
+async function fetchInstructorServiceBookings(services, session = null) {
   const serviceIds = services.map((service) => service.id).filter(Boolean);
   if (!serviceIds.length) return { data: [], error: null, tableName: 'bookings' };
 
   return queryTable('bookings', {
-    select: 'id,service_id,lesson_date,start_time_utc,duration_hours,status',
+    select: 'id,service_id,lesson_date,start_time_utc,duration_hours,group_size,skill_level_booked,total_price,status',
     service_id: `in.(${serviceIds.join(',')})`,
     order: 'lesson_date.asc,start_time_utc.asc',
     limit: '240',
-  });
+  }, session);
 }
 
 export async function submitGuideApplication(payload) {
@@ -589,6 +671,19 @@ function normalizeInstructorService(row) {
   };
 }
 
+function normalizeService(row) {
+  const metadata = row.metadata || {};
+  const activity = row.ref_activities || {};
+  return {
+    id: row.id || row.render_id,
+    title: row.title || row.name || metadata.title || humanizeKey(activity.translation_key || activity.category_key || 'Untitled service'),
+    coachName: row.coach_name || metadata.coach_name || 'GuideNextdoor coach',
+    status: row.service_approval_status || row.status || metadata.status || 'draft',
+    location: row.location || metadata.location || 'Location pending',
+    price: row.price || metadata.price || null,
+  };
+}
+
 async function attachServiceLocations(services) {
   const serviceIds = services.map((service) => service.id).filter(Boolean);
   if (!serviceIds.length) return services;
@@ -657,22 +752,53 @@ function normalizeAvailabilityOverride(row) {
 function normalizeBookedSlot(row) {
   const durationHours = Number(row.duration_hours) || 1;
   const startTime = formatTime(row.start_time_utc);
+  const totalPrice = Number(row.total_price) || 0;
 
   return {
     id: row.id,
     serviceId: row.service_id,
+    serviceTitle: '',
     lessonDate: row.lesson_date || '',
     startTime,
     endTime: addHoursToTime(startTime, durationHours),
     durationHours,
+    groupSize: Number(row.group_size) || 1,
+    skillLevel: row.skill_level_booked || '',
+    totalPrice,
+    currency: row.currency || 'USD',
     status: row.status || 'Pending',
   };
 }
 
-function buildInstructorStats(coach, services, posts, reviews) {
+function mapBookedSlotsToServices(rows, services) {
+  const serviceTitleById = new Map(services.map((service) => [service.id, service.title]));
+
+  return rows.map((row) => ({
+    ...normalizeBookedSlot(row),
+    serviceTitle: serviceTitleById.get(row.service_id) || '',
+  }));
+}
+
+function buildInstructorStats(coach, services, posts, reviews, bookedSlots = []) {
   const years = services.map((service) => Number(service.years) || 0);
   const totalLikes = posts.reduce((sum, post) => sum + (Number(post.likes) || 0), 0);
   const reviewCount = coach.reviewsCount || reviews.length;
+  const completedBookings = bookedSlots.filter((booking) => booking.status === 'Completed');
+  const currentMonth = toDateInputMonth(new Date());
+  
+  const earningsThisMonth = completedBookings
+    .filter((booking) => booking.lessonDate?.startsWith(currentMonth))
+    .reduce((acc, booking) => {
+      const curr = booking.currency || 'USD';
+      acc[curr] = (acc[curr] || 0) + booking.totalPrice;
+      return acc;
+    }, {});
+
+  const totalEarnings = completedBookings.reduce((acc, booking) => {
+    const curr = booking.currency || 'USD';
+    acc[curr] = (acc[curr] || 0) + booking.totalPrice;
+    return acc;
+  }, {});
   
   // Calculate average rating from reviews if coach.rating is missing or 0
   let averageRating = Number(coach.rating) || 0;
@@ -689,7 +815,18 @@ function buildInstructorStats(coach, services, posts, reviews) {
     reviewCount,
     averageRating,
     sessionCount: coach.providedSessionsCount || 0,
+    completedSessionCount: completedBookings.length,
+    pendingSessionCount: bookedSlots.filter((booking) => booking.status === 'Pending').length,
+    confirmedSessionCount: bookedSlots.filter((booking) => booking.status === 'Confirmed').length,
+    earningsThisMonth,
+    totalEarnings,
   };
+}
+
+function toDateInputMonth(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
 }
 
 function humanizeKey(value) {
@@ -1009,6 +1146,10 @@ function formatPostDate(value) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const year = date.getFullYear();
   return `${day}-${month}-${year}`;
+}
+
+function formatDisplayDate(value) {
+  return formatPostDate(value);
 }
 
 function formatTime(value) {

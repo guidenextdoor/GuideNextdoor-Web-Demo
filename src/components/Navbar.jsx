@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { CalendarDays, Compass, Globe2, LayoutDashboard, LogIn, Menu, MessageSquare, UserRoundPlus, X } from 'lucide-react';
+import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, UserRoundPlus, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { getCurrentSession, signOut } from '../lib/database';
 
 const navItems = [
   { key: 'home', path: '', icon: LayoutDashboard },
@@ -15,6 +16,7 @@ export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const session = getCurrentSession();
 
   // Prevent scrolling when mobile menu is open
   useEffect(() => {
@@ -26,11 +28,6 @@ export default function Navbar() {
     return () => { document.body.style.overflow = 'unset'; };
   }, [isMobileMenuOpen]);
 
-  // Close menu on navigation
-  useEffect(() => {
-    setIsMobileMenuOpen(false);
-  }, [location]);
-
   const basePath = `/${i18n.language}`;
   const toPath = (path) => `${basePath}${path ? `/${path}` : ''}`;
 
@@ -38,6 +35,12 @@ export default function Navbar() {
     const pathSegments = location.pathname.split('/').filter(Boolean);
     pathSegments[0] = newLang;
     navigate(`/${pathSegments.join('/')}${location.search}`);
+  };
+
+  const handleSignOut = () => {
+    signOut();
+    setIsMobileMenuOpen(false);
+    navigate(toPath('login'));
   };
 
   return (
@@ -75,20 +78,33 @@ export default function Navbar() {
               <Globe2 size={16} />
               {i18n.language.toUpperCase()}
             </button>
-            <Link
-              to={toPath('login')}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-gnd-gray transition hover:bg-white hover:text-gnd-red"
-            >
-              <LogIn size={16} />
-              {t('nav.login')}
-            </Link>
-            <Link
-              to={toPath('become-guide')}
-              className="flex items-center gap-2 rounded-lg bg-gnd-dark px-4 py-2 text-sm font-bold text-white transition hover:bg-gnd-red shadow-lg shadow-gnd-dark/10"
-            >
-              <UserRoundPlus size={16} />
-              {t('nav.becomeGuide')}
-            </Link>
+            {session ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-gnd-gray transition hover:bg-white hover:text-gnd-red"
+              >
+                <LogOut size={16} />
+                {t('auth.signOut')}
+              </button>
+            ) : (
+              <>
+                <Link
+                  to={toPath('login')}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-gnd-gray transition hover:bg-white hover:text-gnd-red"
+                >
+                  <LogIn size={16} />
+                  {t('nav.login')}
+                </Link>
+                <Link
+                  to={toPath('become-guide')}
+                  className="flex items-center gap-2 rounded-lg bg-gnd-dark px-4 py-2 text-sm font-bold text-white transition hover:bg-gnd-red shadow-lg shadow-gnd-dark/10"
+                >
+                  <UserRoundPlus size={16} />
+                  {t('nav.becomeGuide')}
+                </Link>
+              </>
+            )}
           </div>
 
           <button
@@ -146,6 +162,7 @@ export default function Navbar() {
                 <Link
                   key={key}
                   to={toPath(path)}
+                  onClick={() => setIsMobileMenuOpen(false)}
                   className={`flex items-center gap-4 rounded-xl px-4 py-3.5 text-sm font-bold transition ${
                     location.pathname === toPath(path)
                       ? 'bg-gnd-red text-white shadow-lg shadow-gnd-red/20'
@@ -173,20 +190,35 @@ export default function Navbar() {
 
             {/* Bottom Actions */}
             <div className="p-5 bg-white border-t border-gnd-dark/5 space-y-3">
-              <Link
-                to={toPath('login')}
-                className="flex items-center justify-center gap-3 rounded-xl border-2 border-gnd-dark/10 px-4 py-4 text-sm font-bold text-gnd-dark transition hover:bg-gnd-dark/5"
-              >
-                <LogIn size={20} />
-                {t('nav.login')}
-              </Link>
-              <Link
-                to={toPath('become-guide')}
-                className="flex items-center justify-center gap-3 rounded-xl bg-gnd-dark px-4 py-4 text-sm font-bold text-white shadow-xl shadow-gnd-dark/10 transition hover:bg-gnd-red active:scale-[0.98]"
-              >
-                <UserRoundPlus size={20} className="text-white" />
-                <span className="text-white">{t('nav.becomeGuide')}</span>
-              </Link>
+              {session ? (
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-gnd-dark/10 px-4 py-4 text-sm font-bold text-gnd-dark transition hover:bg-gnd-dark/5"
+                >
+                  <LogOut size={20} />
+                  {t('auth.signOut')}
+                </button>
+              ) : (
+                <>
+                  <Link
+                    to={toPath('login')}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex items-center justify-center gap-3 rounded-xl border-2 border-gnd-dark/10 px-4 py-4 text-sm font-bold text-gnd-dark transition hover:bg-gnd-dark/5"
+                  >
+                    <LogIn size={20} />
+                    {t('nav.login')}
+                  </Link>
+                  <Link
+                    to={toPath('become-guide')}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex items-center justify-center gap-3 rounded-xl bg-gnd-dark px-4 py-4 text-sm font-bold text-white shadow-xl shadow-gnd-dark/10 transition hover:bg-gnd-red active:scale-[0.98]"
+                  >
+                    <UserRoundPlus size={20} className="text-white" />
+                    <span className="text-white">{t('nav.becomeGuide')}</span>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -194,4 +226,3 @@ export default function Navbar() {
     </>
   );
 }
-

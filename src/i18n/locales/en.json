@@ -29,20 +29,25 @@
     "eyebrow": "Account access",
     "title": "Log in to GuideNextdoor",
     "signupTitle": "Create your GuideNextdoor account",
-    "subtitle": "Use Google or an email magic link. Public Explore remains open, while booking actions and instructor schedule edits require a Supabase session.",
+    "subtitle": "Use your email and password. Public Explore remains open, while booking actions and instructor schedule edits require a Supabase session.",
     "loginTab": "Log in",
     "signupTab": "Sign up",
     "loginGoogle": "Continue with Google",
     "signupGoogle": "Sign up with Google",
-    "orEmail": "or email",
+    "googleUnavailable": "Google sign-in is not enabled in the current Supabase project yet.",
+    "emailPassword": "email and password",
     "email": "Email",
     "emailPlaceholder": "you@example.com",
-    "sendLink": "Send magic link",
-    "signupEmail": "Send sign-up link",
-    "checkEmail": "Check your email for the login link.",
-    "checkSignupEmail": "Check your email for the sign-up link.",
-    "sendFailed": "Could not send the login link. Please check Supabase Auth settings and try again.",
-    "signupFailed": "Could not send the sign-up link. Please check Supabase Auth settings and try again.",
+    "password": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "confirmPassword": "Confirm password",
+    "confirmPasswordPlaceholder": "Re-enter your password",
+    "signIn": "Log in",
+    "signupEmail": "Create account",
+    "checkSignupEmail": "Account created. Check your email if confirmation is required before logging in.",
+    "signInFailed": "Could not log in. Check your email and password.",
+    "signupFailed": "Could not create this account. Check the password length or whether the email is already registered.",
+    "passwordMismatch": "Passwords do not match.",
     "consumeFailed": "Could not finish login from this link.",
     "signedIn": "You are logged in.",
     "signedOut": "You are logged out.",
@@ -283,7 +288,20 @@
       "subtitle": "A reserved workflow for learner requests, coach availability, and session status.",
       "primaryAction": "New request",
       "emptyTitle": "No sessions yet",
-      "emptyBody": "Session records will appear here once the booking workflow is connected."
+      "emptyBody": "Session records will appear here once the booking workflow is connected.",
+      "totalEarnings": "Total earnings",
+      "completed": "Completed",
+      "confirmed": "Confirmed",
+      "pending": "Pending",
+      "groupSize": "{{count}} learner",
+      "groupSize_plural": "{{count}} learners",
+      "totalPrice": "Total price"
+    },
+    "services": {
+      "eyebrow": "Offer catalog",
+      "title": "Services",
+      "subtitle": "Manage the coaching services learners can request from your public profile.",
+      "addService": "Add service"
     },
     "messages": {
       "eyebrow": "Inbox",
@@ -319,6 +337,21 @@
       "deleteFailed": "Could not delete this availability window.",
       "saved": "Availability window saved.",
       "deleted": "Availability window deleted."
+    },
+    "posts": {
+      "title": "Posts",
+      "subtitle": "Create and manage the posts that appear on Explore and your public profile.",
+      "createPost": "Create post",
+      "emptyTitle": "No posts created yet",
+      "emptyBody": "Your approved posts from Supabase will appear here. The composer button is ready for the next build step."
+    },
+    "about": {
+      "eyebrow": "Public profile",
+      "title": "About",
+      "subtitle": "Review the profile information learners see before requesting a session.",
+      "bioPending": "Add an instructor intro so learners understand your background, coaching style, and what they can expect.",
+      "profileHealth": "Profile summary",
+      "noServices": "No service credentials are connected yet."
     }
   },
   "footer": {

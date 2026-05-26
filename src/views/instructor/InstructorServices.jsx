@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Briefcase, Plus, Inbox, Clock, CheckCircle2, ChevronRight, MapPin } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Briefcase, Plus, Clock, ChevronRight, MapPin } from 'lucide-react';
 import { fetchInstructorSchedule } from '../../lib/database';
+import InstructorDashboardLayout from './InstructorDashboardLayout';
 
 export default function InstructorServices() {
   const { t } = useTranslation();
@@ -29,29 +29,25 @@ export default function InstructorServices() {
   };
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-gnd-dark md:text-5xl">
-            {t('profile.tabs.sessions')}
-          </h1>
-          <p className="mt-2 text-lg font-bold text-gnd-gray">
-            {t('becomeGuide.subtitle')}
-          </p>
-        </div>
-        <button className="flex items-center justify-center gap-2 rounded-2xl bg-gnd-red px-6 py-4 text-sm font-black text-white shadow-xl shadow-red-600/20 transition-all hover:bg-gnd-dark active:scale-[0.98]">
+    <InstructorDashboardLayout
+      eyebrow={t('workspace.services.eyebrow')}
+      title={t('workspace.services.title')}
+      subtitle={t('workspace.services.subtitle')}
+    >
+      <div className="flex justify-end">
+        <button className="flex items-center justify-center gap-2 rounded-lg bg-gnd-red px-5 py-3 text-sm font-black text-white shadow-xl shadow-red-600/20 transition-all hover:bg-gnd-dark active:scale-[0.98]">
           <Plus size={20} />
-          {t('becomeGuide.checklist.profile.title')}
+          {t('workspace.services.addService')}
         </button>
-      </header>
+      </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {state.loading && Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-64 animate-pulse rounded-3xl bg-white border border-gnd-cream/30" />
+          <div key={i} className="h-64 animate-pulse rounded-lg border border-gnd-cream bg-white" />
         ))}
 
         {!state.loading && state.data.length === 0 && (
-          <div className="col-span-full grid place-items-center rounded-3xl bg-white p-16 border border-gnd-cream/30 shadow-sm">
+          <div className="col-span-full grid place-items-center rounded-lg border border-gnd-cream bg-white p-12 shadow-sm sm:p-16">
             <Briefcase size={48} className="text-gnd-cream mb-4" />
             <h2 className="text-2xl font-black text-gnd-dark">{t('profile.empty.sessionsTitle')}</h2>
             <p className="mt-2 text-gnd-gray font-bold text-center max-w-sm">{t('profile.empty.sessionsBody')}</p>
@@ -59,7 +55,7 @@ export default function InstructorServices() {
         )}
 
         {!state.loading && state.data.map((service) => (
-          <article key={service.id} className="group relative flex flex-col overflow-hidden rounded-3xl bg-white transition-all hover:shadow-xl hover:shadow-red-900/5 border border-gnd-cream/30">
+          <article key={service.id} className="group relative flex flex-col overflow-hidden rounded-lg border border-gnd-cream bg-white transition-all hover:shadow-xl hover:shadow-red-900/5">
             <div className="flex flex-1 flex-col p-6">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
@@ -110,7 +106,7 @@ export default function InstructorServices() {
             <div className="px-6 pb-6">
               <button
                 type="button"
-                className="group/btn relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gnd-red py-4 text-sm font-black text-white shadow-lg shadow-red-600/10 transition-all hover:bg-gnd-dark active:scale-[0.98]"
+                className="group/btn relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-lg bg-gnd-red py-4 text-sm font-black text-white shadow-lg shadow-red-600/10 transition-all hover:bg-gnd-dark active:scale-[0.98]"
               >
                 <Briefcase size={16} />
                 {t('workspace.overview.viewAll')}
@@ -120,6 +116,6 @@ export default function InstructorServices() {
           </article>
         ))}
       </div>
-    </div>
+    </InstructorDashboardLayout>
   );
 }

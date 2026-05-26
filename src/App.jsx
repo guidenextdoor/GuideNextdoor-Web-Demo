@@ -17,6 +17,8 @@ import InstructorBookings from './views/instructor/InstructorBookings';
 import InstructorMessages from './views/instructor/InstructorMessages';
 import InstructorServices from './views/instructor/InstructorServices';
 import InstructorSchedule from './views/instructor/InstructorSchedule';
+import InstructorPosts from './views/instructor/InstructorPosts';
+import InstructorAbout from './views/instructor/InstructorAbout';
 
 const supportedLangs = ['en'];
 
@@ -54,6 +56,7 @@ function LanguageWrapper() {
                 <Route path="/guide/:id" element={<GuideProfileView />} />
                 <Route path="/become-guide" element={<BecomeGuideView />} />
                 <Route path="/login" element={<LoginView />} />
+                <Route path="/sessions" element={<Navigate to={`/${lang}/instructor`} replace />} />
                 
                 {/* Instructor Dashboard */}
                 <Route path="/instructor" element={<DashboardView />}>
@@ -62,8 +65,8 @@ function LanguageWrapper() {
                   <Route path="messages" element={<InstructorMessages />} />
                   <Route path="services" element={<InstructorServices />} />
                   <Route path="schedule" element={<InstructorSchedule />} />
-                  <Route path="posts" element={<div>Posts Management (Coming Soon)</div>} />
-                  <Route path="profile" element={<div>Profile Management (Coming Soon)</div>} />
+                  <Route path="posts" element={<InstructorPosts />} />
+                  <Route path="profile" element={<InstructorAbout />} />
                 </Route>
               </Routes>
             </AnimatePresence>
