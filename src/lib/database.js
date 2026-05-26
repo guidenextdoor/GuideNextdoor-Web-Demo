@@ -194,11 +194,11 @@ async function queryTable(tableName, searchParams = {}, session = null) {
   return { data: await response.json(), error: null, tableName };
 }
 
-async function queryFirstAvailable(resourceName, params) {
+async function queryFirstAvailable(resourceName, params, session = null) {
   const errors = [];
 
   for (const tableName of tableCandidates[resourceName]) {
-    const result = await queryTable(tableName, params);
+    const result = await queryTable(tableName, params, session);
     if (!result.error) return result;
     errors.push(`${tableName}: ${result.error}`);
   }
@@ -211,11 +211,12 @@ async function queryFirstAvailable(resourceName, params) {
 }
 
 export async function fetchCoaches({ query = '', role = 'all', location = '' } = {}) {
+  const session = getCurrentSession();
   const result = await queryFirstAvailable('coaches', {
     select: '*,users(*),locations(*)',
     limit: '24',
     order: 'average_rating.desc',
-  });
+  }, session);
 
   const normalized = result.data.map((row) => normalizeCoach(row));
   const filtered = normalized.filter((coach) => {
@@ -245,14 +246,14 @@ export async function fetchInstructorSchedule() {
         select: '*,users(*),locations(*)',
         user_id: `eq.${session.user.id}`,
         limit: '1',
-      })
+      }, session)
     : { data: [], error: null, tableName: 'instructor_profiles' };
 
   const fallbackResult = !instructorResult.data?.length
     ? await queryTable('instructor_profiles', {
         select: '*,users(*),locations(*)',
         limit: '1',
-      })
+      }, session)
     : instructorResult;
 
   if (fallbackResult.error || !fallbackResult.data?.length) {
@@ -284,9 +285,8 @@ export async function fetchInstructorSchedule() {
       limit: '120',
     }, session),
     queryTable('posts', {
-      select: '*,locations(*)',
+      select: '*,locations(*),user_liked:post_likes(id),user_saved:saved_posts(id)',
       instructor_id: `eq.${coach.id}`,
-      approval_status: 'eq.approved',
       order: 'created_at.desc',
       limit: '48',
     }, session),
@@ -350,28 +350,29 @@ export async function fetchPosts() {
     limit: '60',
     order: 'created_at.desc',
   };
+  
+  // Base select includes a join to post_likes and saved_posts.
+  // We explicitly filter by user_id to double-ensure we only fetch the current user's state.
+  const userFilter = session ? `(user_id=eq.${session.user.id})` : '';
+  const likeJoin = `user_liked:post_likes(id)${userFilter}`;
+  const saveJoin = `user_saved:saved_posts(id)${userFilter}`;
+  const select = `*,instructor_profiles(users(*),locations(*)),locations(*),${likeJoin},${saveJoin}`;
+
   const resultWithLocation = await queryFirstAvailable('posts', {
     ...query,
-    select: '*,instructor_profiles(users(*),locations(*)),locations(*)',
-  });
+    select,
+  }, session);
 
   const result = resultWithLocation.error
     ? await queryFirstAvailable('posts', {
         ...query,
-        select: '*,instructor_profiles(users(*))',
-      })
+        select: `*,instructor_profiles(users(*)),${likeJoin},${saveJoin}`,
+      }, session)
     : resultWithLocation;
-
-  const posts = result.data.map((row) => normalizePost(row));
-  const interactionState = session ? await fetchPostInteractionState(posts.map((post) => post.id), session) : {};
 
   return {
     ...result,
-    data: posts.map((post) => ({
-      ...post,
-      liked: Boolean(interactionState[post.id]?.liked),
-      saved: Boolean(interactionState[post.id]?.saved),
-    })),
+    data: result.data.map((row) => normalizePost(row)),
   };
 }
 
@@ -393,7 +394,97 @@ export async function toggleSavedPost(post) {
     : createInteraction('saved_posts', post.id, session);
 }
 
+export async function fetchPostComments(postId) {
+  const result = await queryTable('post_comments', {
+    select: '*,users(display_name,avatar_url)',
+    post_id: `eq.${postId}`,
+    status: 'eq.visible',
+    order: 'created_at.asc',
+    limit: '100',
+  });
+
+  return { ...result, data: result.data.map((row) => normalizeComment(row)) };
+}
+
+export async function createPostComment(postId, body) {
+  const session = getCurrentSession();
+  if (!session) return { data: null, error: 'auth_required' };
+
+  return insertTable('post_comments', {
+    post_id: postId,
+    user_id: session.user.id,
+    body: body.trim(),
+    status: 'visible',
+  }, session);
+}
+
+export async function uploadPostMedia(files) {
+  const session = getCurrentSession();
+  if (!session) return { data: null, error: 'auth_required' };
+
+  const results = [];
+  const errors = [];
+
+  for (const file of files) {
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}.jpg`;
+    const path = `${session.user.id}/${fileName}`;
+
+    const url = new URL(`/storage/v1/object/posts/${path}`, SUPABASE_URL);
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        ...buildHeaders(session),
+        'Content-Type': file.type,
+      },
+      body: file,
+    });
+
+    if (response.ok) {
+      // Return the public URL
+      results.push(`${SUPABASE_URL}/storage/v1/object/public/posts/${path}`);
+    } else {
+      errors.push(await response.text());
+    }
+  }
+
+  return { data: results, error: errors.length ? errors.join(', ') : null };
+}
+
+export async function createPost(payload) {
+  const session = getCurrentSession();
+  if (!session) return { data: null, error: 'auth_required' };
+
+  // Get instructor profile ID first
+  const profileResult = await queryTable('instructor_profiles', {
+    user_id: `eq.${session.user.id}`,
+    select: 'id',
+    limit: '1',
+  }, session);
+
+  if (profileResult.error || !profileResult.data?.length) {
+    return { data: null, error: 'instructor_profile_not_found' };
+  }
+
+  const instructorId = profileResult.data[0].id;
+
+  const postPayload = {
+    instructor_id: instructorId,
+    service_id: payload.serviceId || null,
+    location_id: payload.locationId || null,
+    media_url: payload.imageUrls[0], // Primary image
+    image_urls: payload.imageUrls,   // All images
+    caption: payload.caption || '',
+    title: payload.title || payload.caption?.slice(0, 50) || 'New Post',
+    hashtags: payload.hashtags || [],
+    approval_status: 'approved', // Real-time posting per user request
+    aspect_ratio: payload.aspectRatio || 0.8,
+  };
+
+  return insertTable('posts', postPayload, session);
+}
+
 export async function fetchLocations() {
+
   const result = await queryFirstAvailable('locations', {
     select: '*',
     limit: '18',
@@ -420,54 +511,56 @@ export async function fetchCoachById(id) {
 }
 
 export async function fetchInstructorProfile(id) {
+  const session = getCurrentSession();
   const coachResult = await fetchCoachById(id);
   if (coachResult.error || !coachResult.data) return coachResult;
 
   const [postsResult, servicesResult, reviewsResult, availabilityResult, overridesResult, qualificationsResult] = await Promise.all([
     queryTable('posts', {
-      select: '*,locations(*)',
+      select: '*,locations(*),user_liked:post_likes(id),user_saved:saved_posts(id)',
       instructor_id: `eq.${id}`,
       approval_status: 'eq.approved',
       order: 'created_at.desc',
       limit: '24',
-    }),
+    }, session),
     queryTable('instructor_services', {
       select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*)',
       instructor_id: `eq.${id}`,
       order: 'attainment_year.asc',
       limit: '24',
-    }),
+    }, session),
     queryTable('reviews', {
       select: '*,users(*),bookings(*)',
       instructor_id: `eq.${id}`,
       order: 'created_at.desc',
       limit: '20',
-    }),
+    }, session),
     queryTable('instructor_availability', {
       select: '*',
       instructor_id: `eq.${id}`,
       is_active: 'eq.true',
       order: 'day_of_week.asc,start_time.asc',
-    }),
+    }, session),
     queryTable('instructor_availability_overrides', {
       select: '*',
       instructor_id: `eq.${id}`,
       order: 'date.asc',
       limit: '20',
-    }),
+    }, session),
     queryTable('instructor_qualifications', {
       select: '*,ref_activities(*)',
       instructor_id: `eq.${id}`,
       order: 'attainment_year.asc',
       limit: '48',
-    }),
+    }, session),
   ]);
 
-  const services = servicesResult.data.map((row) => normalizeInstructorService(row));
+  const services = servicesResult.data?.map((row) => normalizeInstructorService(row)) || [];
   const servicesWithLocations = await attachServiceLocations(services);
   const bookingsResult = await fetchInstructorServiceBookings(servicesWithLocations);
-  const qualifications = qualificationsResult.data.map((row) => normalizeQualification(row));
-  const posts = postsResult.data.map((row) => normalizePost({
+  const qualifications = qualificationsResult.data?.map((row) => normalizeQualification(row)) || [];
+  
+  const posts = postsResult.data?.map((row) => normalizePost({
     ...row,
     instructor_profiles: {
       users: {
@@ -477,30 +570,24 @@ export async function fetchInstructorProfile(id) {
       locations: null,
       cover_photo_url: coachResult.data.avatarUrl,
     },
-  }));
-  const session = getCurrentSession();
-  const interactionState = session ? await fetchPostInteractionState(posts.map((post) => post.id), session) : {};
-  const postsWithInteractions = posts.map((post) => ({
-    ...post,
-    liked: Boolean(interactionState[post.id]?.liked),
-    saved: Boolean(interactionState[post.id]?.saved),
-  }));
-  const reviews = reviewsResult.data.map((row) => normalizeReview(row));
-  const availability = availabilityResult.error ? [] : availabilityResult.data.map((row) => normalizeAvailability(row));
-  const availabilityOverrides = overridesResult.error ? [] : overridesResult.data.map((row) => normalizeAvailabilityOverride(row));
-  const bookedSlots = bookingsResult.error ? [] : bookingsResult.data.map((row) => normalizeBookedSlot(row));
+  })) || [];
+
+  const reviews = reviewsResult.data?.map((row) => normalizeReview(row)) || [];
+  const availability = availabilityResult.data?.map((row) => normalizeAvailability(row)) || [];
+  const availabilityOverrides = overridesResult.data?.map((row) => normalizeAvailabilityOverride(row)) || [];
+  const bookedSlots = bookingsResult.data?.map((row) => normalizeBookedSlot(row)) || [];
 
   return {
     data: {
       ...coachResult.data,
-      posts: postsWithInteractions,
+      posts,
       services: servicesWithLocations,
       reviews,
       availability,
       availabilityOverrides,
       bookedSlots,
       qualifications,
-      stats: buildInstructorStats(coachResult.data, servicesWithLocations, postsWithInteractions, reviews),
+      stats: buildInstructorStats(coachResult.data, servicesWithLocations, posts, reviews),
     },
     error: null,
     tableName: coachResult.tableName,
@@ -913,12 +1000,32 @@ function normalizeChatRoom(row, currentUserId) {
   };
 }
 
+function normalizeComment(row) {
+  const user = row.users || {};
+  return {
+    id: row.id,
+    postId: row.post_id,
+    userId: row.user_id,
+    body: row.body,
+    createdAt: row.created_at,
+    displayDate: formatPostDate(row.created_at),
+    userName: user.display_name || 'GuideNextdoor user',
+    avatarUrl: user.avatar_url || '',
+  };
+}
+
 function normalizePost(row) {
   const profile = row.instructor_profiles || {};
   const user = profile.users || {};
   const location = row.locations || profile.locations || {};
   const imageUrls = Array.isArray(row.image_urls) ? row.image_urls : [];
   const caption = row.caption || row.title || '';
+  
+  // If the row contains joined interaction data (from user_liked/user_saved), use it.
+  // Otherwise default to the explicit liked/saved flags if provided in the row.
+  const liked = row.user_liked ? row.user_liked.length > 0 : (row.liked || false);
+  const saved = row.user_saved ? row.user_saved.length > 0 : (row.saved || false);
+
   return {
     id: row.id,
     instructorId: row.instructor_id,
@@ -936,53 +1043,26 @@ function normalizePost(row) {
     avatarUrl: user.avatar_url || profile.cover_photo_url || '',
     hashtags: row.hashtags || [],
     location: location.name || location.formatted_address || location.city || location.city_or_region || '',
-    liked: false,
-    saved: false,
+    liked,
+    saved,
   };
 }
 
-async function fetchPostInteractionState(postIds, session) {
-  if (!postIds.length) return {};
+async function createInteraction(tableName, postId, session = null) {
+  const activeSession = session || getCurrentSession();
+  if (!activeSession) return { error: 'auth_required' };
 
-  const postFilter = `in.(${postIds.join(',')})`;
-  const [likes, saves] = await Promise.all([
-    queryInteractionTable('post_likes', postFilter, session),
-    queryInteractionTable('saved_posts', postFilter, session),
-  ]);
-
-  const state = {};
-  likes.forEach((like) => {
-    state[like.post_id] = { ...state[like.post_id], liked: true };
-  });
-  saves.forEach((save) => {
-    state[save.post_id] = { ...state[save.post_id], saved: true };
-  });
-
-  return state;
-}
-
-async function queryInteractionTable(tableName, postFilter, session) {
-  const result = await requestTable(tableName, {
-    select: 'post_id',
-    user_id: `eq.${session.user.id}`,
-    post_id: postFilter,
-  }, session);
-
-  return result.error ? [] : result.data;
-}
-
-async function createInteraction(tableName, postId, session) {
   const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
   const response = await fetch(url.toString(), {
     method: 'POST',
     headers: {
-      ...buildHeaders(session),
+      ...buildHeaders(activeSession),
       'Content-Type': 'application/json',
       Prefer: 'return=minimal',
     },
     body: JSON.stringify({
       post_id: postId,
-      user_id: session.user.id,
+      user_id: activeSession.user.id,
     }),
   });
 
@@ -993,15 +1073,18 @@ async function createInteraction(tableName, postId, session) {
   return { error: null, alreadyExists: response.status === 409 };
 }
 
-async function deleteInteraction(tableName, postId, session) {
+async function deleteInteraction(tableName, postId, session = null) {
+  const activeSession = session || getCurrentSession();
+  if (!activeSession) return { error: 'auth_required' };
+
   const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
   url.searchParams.set('post_id', `eq.${postId}`);
-  url.searchParams.set('user_id', `eq.${session.user.id}`);
+  url.searchParams.set('user_id', `eq.${activeSession.user.id}`);
 
   const response = await fetch(url.toString(), {
     method: 'DELETE',
     headers: {
-      ...buildHeaders(session),
+      ...buildHeaders(activeSession),
       Prefer: 'return=minimal',
     },
   });
@@ -1013,11 +1096,12 @@ async function deleteInteraction(tableName, postId, session) {
   return { error: null };
 }
 
-async function deleteTable(tableName, filters, session) {
+async function deleteTable(tableName, filters, session = null) {
   if (!databaseStatus.hasConfig) {
     return { error: 'missing_config', tableName };
   }
 
+  const activeSession = session || getCurrentSession();
   const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
   Object.entries(filters).forEach(([key, value]) => {
     url.searchParams.set(key, value);
@@ -1026,7 +1110,7 @@ async function deleteTable(tableName, filters, session) {
   const response = await fetch(url.toString(), {
     method: 'DELETE',
     headers: {
-      ...buildHeaders(session),
+      ...buildHeaders(activeSession),
       Prefer: 'return=minimal',
     },
   });
@@ -1038,16 +1122,17 @@ async function deleteTable(tableName, filters, session) {
   return { error: null, tableName };
 }
 
-async function insertTable(tableName, payload, session, prefer = 'return=representation') {
+async function insertTable(tableName, payload, session = null, prefer = 'return=representation') {
   if (!databaseStatus.hasConfig) {
     return { data: null, error: 'missing_config', tableName };
   }
 
+  const activeSession = session || getCurrentSession();
   const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
   const response = await fetch(url.toString(), {
     method: 'POST',
     headers: {
-      ...buildHeaders(session),
+      ...buildHeaders(activeSession),
       'Content-Type': 'application/json',
       Prefer: prefer,
     },
@@ -1070,6 +1155,9 @@ async function requestTable(tableName, searchParams = {}, session = null) {
     return { data: [], error: 'missing_config', tableName };
   }
 
+  // Use provided session or try to get current one
+  const activeSession = session || getCurrentSession();
+
   const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
   Object.entries(searchParams).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
@@ -1079,7 +1167,7 @@ async function requestTable(tableName, searchParams = {}, session = null) {
 
   const response = await fetch(url.toString(), {
     headers: {
-      ...buildHeaders(session),
+      ...buildHeaders(activeSession),
       Accept: 'application/json',
     },
   });

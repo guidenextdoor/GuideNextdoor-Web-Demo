@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Bookmark, Heart, MapPin, MessageCircle, MessageSquare, Search, X } from 'lucide-react';
+import { Bookmark, Heart, MapPin, MessageCircle, MessageSquare, Search, X, ChevronLeft, ChevronRight, Send, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
-import { fetchPosts, togglePostLike, toggleSavedPost } from '../lib/database';
+import { motion, AnimatePresence } from 'framer-motion';
+import { fetchPosts, togglePostLike, toggleSavedPost, fetchPostComments, createPostComment } from '../lib/database';
 
 const fallbackImages = [
   'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1000&q=80',
@@ -79,7 +79,8 @@ export default function ExploreView() {
         liked: post.liked,
         likes: post.likes,
       }));
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : t('explore.interactionFailed'));
+      const errorMsg = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : `${t('explore.interactionFailed')} (${errorMsg})`);
     }
   };
 
@@ -90,7 +91,8 @@ export default function ExploreView() {
     const result = await toggleSavedPost(post);
     if (result.error) {
       updatePost(post.id, (current) => ({ ...current, saved: post.saved }));
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : t('explore.interactionFailed'));
+      const errorMsg = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : `${t('explore.interactionFailed')} (${errorMsg})`);
     }
   };
 
@@ -166,16 +168,49 @@ export default function ExploreView() {
 }
 
 function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
-  const imageUrl = post.imageUrl || fallbackImages[index % fallbackImages.length];
+  const imageUrls = post.imageUrls?.length > 0 ? post.imageUrls : [post.imageUrl || fallbackImages[index % fallbackImages.length]];
+  const [imgIndex, setImgIndex] = useState(0);
 
   return (
-    <article className="overflow-hidden rounded-[1.5rem] bg-white shadow-lg shadow-red-900/5">
-      <button type="button" className="relative block w-full text-left" onClick={onOpen}>
-        <img src={imageUrl} alt={post.title} className="aspect-[4/5] w-full object-cover" />
-      </button>
+    <article className="overflow-hidden rounded-[1.5rem] bg-white shadow-lg shadow-red-900/5 group">
+      <div className="relative aspect-[4/5] w-full overflow-hidden">
+        <button type="button" className="h-full w-full text-left" onClick={onOpen}>
+          <AnimatePresence mode="wait">
+            <motion.img 
+              key={imgIndex}
+              src={imageUrls[imgIndex]} 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              alt={post.title} 
+              className="h-full w-full object-cover" 
+            />
+          </AnimatePresence>
+        </button>
+
+        {imageUrls.length > 1 && (
+          <>
+            <div className="absolute top-3 right-3 rounded-full bg-black/50 px-2 py-1 text-[8px] font-black text-white backdrop-blur-sm">
+              {imgIndex + 1} / {imageUrls.length}
+            </div>
+            <button 
+              onClick={(e) => { e.stopPropagation(); setImgIndex(prev => (prev > 0 ? prev - 1 : imageUrls.length - 1)); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/80 p-1 text-gnd-dark shadow-md opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); setImgIndex(prev => (prev < imageUrls.length - 1 ? prev + 1 : 0)); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/80 p-1 text-gnd-dark shadow-md opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </>
+        )}
+      </div>
       <div className="p-3">
         <Link to={profilePath} className="mb-2 flex w-full items-center gap-2 text-left">
-          <img src={post.avatarUrl || imageUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
+          <img src={post.avatarUrl || imageUrls[0]} alt="" className="h-9 w-9 rounded-full object-cover" />
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-sm font-black">{post.coachName}</h3>
             <p className="mt-0.5 flex h-4 items-center gap-1 truncate text-xs font-bold text-gnd-gray">
@@ -213,7 +248,39 @@ function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
 }
 
 function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
-  const imageUrl = post.imageUrl || fallbackImages[0];
+  const imageUrls = post.imageUrls?.length > 0 ? post.imageUrls : [post.imageUrl || fallbackImages[0]];
+  const [imgIndex, setImgIndex] = useState(0);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [loadingComments, setLoadingComments] = useState(true);
+
+  useEffect(() => {
+    async function loadComments() {
+      setLoadingComments(true);
+      const result = await fetchPostComments(post.id);
+      if (result.data) setComments(result.data);
+      setLoadingComments(false);
+    }
+    loadComments();
+  }, [post.id]);
+
+  const handleCommentSubmit = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim() || submitting) return;
+
+    setSubmitting(true);
+    const result = await createPostComment(post.id, newComment);
+    if (result.error) {
+      alert(result.error === 'auth_required' ? t('explore.loginRequired') : 'Failed to post comment.');
+    } else {
+      setNewComment('');
+      // Refresh comments
+      const updated = await fetchPostComments(post.id);
+      if (updated.data) setComments(updated.data);
+    }
+    setSubmitting(false);
+  };
 
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-gnd-dark/80 p-4 backdrop-blur-md" onClick={onClose}>
@@ -224,8 +291,43 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
         onClick={(event) => event.stopPropagation()}
       >
         {/* Left: Media Area */}
-        <div className="flex h-full items-center justify-center bg-black border-r border-gnd-cream/10">
-          <img src={imageUrl} alt={post.title} className="h-full max-h-[90vh] w-full object-contain" />
+        <div className="relative flex h-full items-center justify-center bg-black border-r border-gnd-cream/10 group">
+          <AnimatePresence mode="wait">
+            <motion.img 
+              key={imgIndex}
+              src={imageUrls[imgIndex]} 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              alt={post.title} 
+              className="h-full max-h-[90vh] w-full object-contain" 
+            />
+          </AnimatePresence>
+
+          {imageUrls.length > 1 && (
+            <>
+              <button 
+                onClick={() => setImgIndex(prev => (prev > 0 ? prev - 1 : imageUrls.length - 1))}
+                className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white backdrop-blur-md opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <ChevronLeft size={24} />
+              </button>
+              <button 
+                onClick={() => setImgIndex(prev => (prev < imageUrls.length - 1 ? prev + 1 : 0))}
+                className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white backdrop-blur-md opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <ChevronRight size={24} />
+              </button>
+              <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-2">
+                {imageUrls.map((_, i) => (
+                  <div 
+                    key={i} 
+                    className={`h-1.5 w-1.5 rounded-full transition-all ${i === imgIndex ? 'bg-white scale-125' : 'bg-white/40'}`} 
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Right: Interaction Area */}
@@ -233,7 +335,7 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
           {/* Header */}
           <header className="flex items-center justify-between border-b border-gnd-cream p-2 md:p-4">
             <Link to={profilePath} className="flex min-w-0 items-center gap-1.5 md:gap-3" onClick={onClose}>
-              <img src={post.avatarUrl || imageUrl} alt="" className="h-6 w-6 md:h-9 md:h-9 rounded-full border border-gnd-cream object-cover" />
+              <img src={post.avatarUrl || imageUrls[0]} alt="" className="h-6 w-6 md:h-9 md:h-9 rounded-full border border-gnd-cream object-cover" />
               <div className="min-w-0">
                 <h2 className="truncate text-[10px] md:text-sm font-black text-gnd-dark">{post.coachName}</h2>
                 <p className="flex items-center gap-1 truncate text-[8px] md:text-[10px] font-black uppercase tracking-wider text-gnd-gray">
@@ -255,7 +357,7 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3 md:px-4 md:py-5">
             <div className="flex gap-2 md:gap-3">
               <Link to={profilePath} onClick={onClose} className="shrink-0 hidden sm:block">
-                <img src={post.avatarUrl || imageUrl} alt="" className="h-7 w-7 md:h-9 md:h-9 rounded-full object-cover" />
+                <img src={post.avatarUrl || imageUrls[0]} alt="" className="h-7 w-7 md:h-9 md:h-9 rounded-full object-cover" />
               </Link>
               <div className="flex-1 space-y-1 text-[11px] md:text-sm leading-relaxed">
                 <p className="text-gnd-dark">
@@ -275,16 +377,34 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
               </div>
             </div>
 
-            {/* Placeholder for real comments */}
-            <div className="mt-4 md:mt-8 space-y-3 md:space-y-4">
-              <p className="text-[9px] md:text-[11px] font-black uppercase tracking-widest text-gnd-gray/50">{t('profile.tabs.reviews')}</p>
-              <div className="flex gap-2 md:gap-3 opacity-40">
-                <div className="h-5 w-5 md:h-8 md:w-8 rounded-full bg-gnd-cream shrink-0" />
-                <div className="space-y-1.5 flex-1 pt-0.5 md:pt-1">
-                  <div className="h-1 md:h-2 w-12 md:w-24 bg-gnd-cream rounded" />
-                  <div className="h-1 md:h-2 w-full bg-gnd-cream rounded" />
+            {/* Comments List */}
+            <div className="mt-4 md:mt-8 space-y-4 md:space-y-6">
+              <p className="text-[9px] md:text-[11px] font-black uppercase tracking-widest text-gnd-gray/50">
+                Comments ({comments.length})
+              </p>
+              
+              {loadingComments ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-gnd-cream" />
                 </div>
-              </div>
+              ) : comments.length > 0 ? (
+                comments.map((comment) => (
+                  <div key={comment.id} className="flex gap-2 md:gap-3">
+                    <img src={comment.avatarUrl || fallbackImages[0]} alt="" className="h-6 w-6 md:h-8 md:h-8 rounded-full object-cover shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] md:text-sm text-gnd-dark leading-relaxed">
+                        <span className="font-black mr-2">{comment.userName}</span>
+                        {comment.body}
+                      </p>
+                      <p className="mt-1 text-[8px] md:text-[10px] font-bold text-gnd-gray uppercase tracking-wider">
+                        {comment.displayDate}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-xs font-bold text-gnd-gray py-4">No comments yet. Be the first to share your thoughts!</p>
+              )}
             </div>
           </div>
 
@@ -295,7 +415,11 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
                 <button type="button" className={`transition hover:scale-110 active:scale-90 ${post.liked ? 'text-gnd-red' : 'text-gnd-dark'}`} onClick={onLike}>
                   <Heart size={20} className={`${post.liked ? 'fill-current' : ''} md:w-[26px] md:h-[26px]`} />
                 </button>
-                <button type="button" className="text-gnd-dark transition hover:scale-110">
+                <button 
+                  type="button" 
+                  className="text-gnd-dark transition hover:scale-110"
+                  onClick={() => document.getElementById('comment-input')?.focus()}
+                >
                   <MessageCircle size={20} className="md:w-[26px] md:h-[26px]" />
                 </button>
               </div>
@@ -309,15 +433,38 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
             </div>
           </section>
 
+          {/* Comment Input Area */}
+          <section className="border-t border-gnd-cream p-2 md:p-3">
+            <form onSubmit={handleCommentSubmit} className="flex items-center gap-2">
+              <input
+                id="comment-input"
+                type="text"
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Add a comment..."
+                className="flex-1 bg-transparent text-[11px] md:text-sm font-bold text-gnd-dark outline-none placeholder:text-gnd-gray/40"
+              />
+              <button 
+                type="submit"
+                disabled={!newComment.trim() || submitting}
+                className={`text-[11px] md:text-sm font-black uppercase tracking-widest transition ${newComment.trim() && !submitting ? 'text-blue-500' : 'text-gnd-gray/30 cursor-not-allowed'}`}
+              >
+                {submitting ? <Loader2 size={16} className="animate-spin" /> : 'Post'}
+              </button>
+            </form>
+          </section>
+
           {/* Footer Actions */}
           <footer className="flex flex-col gap-1.5 border-t border-gnd-cream bg-gnd-cream/30 p-2 md:p-4">
-            <button type="button" className="flex items-center justify-center gap-1.5 md:gap-2 rounded-lg bg-gnd-red px-2 py-2 md:px-4 md:py-3 text-[9px] md:text-xs font-black text-white shadow-lg shadow-red-600/20 transition hover:bg-red-600 active:scale-[0.98]">
-              <MessageSquare size={12} className="md:w-[16px] md:h-[16px]" />
-              {t('explore.messageCta')}
-            </button>
-            <button type="button" className="rounded-lg bg-gnd-dark px-2 py-2 md:px-4 md:py-3 text-[9px] md:text-xs font-black text-white transition hover:bg-black active:scale-[0.98]">
-              {t('explore.viewSessionsCta')}
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" className="flex items-center justify-center gap-1.5 md:gap-2 rounded-lg bg-gnd-red px-2 py-2 md:px-4 md:py-3 text-[9px] md:text-xs font-black text-white shadow-lg shadow-red-600/20 transition hover:bg-red-600 active:scale-[0.98]">
+                <MessageSquare size={12} className="md:w-[16px] md:h-[16px]" />
+                {t('explore.messageCta')}
+              </button>
+              <button type="button" className="rounded-lg bg-gnd-dark px-2 py-2 md:px-4 md:py-3 text-[9px] md:text-xs font-black text-white transition hover:bg-black active:scale-[0.98]">
+                {t('explore.viewSessionsCta')}
+              </button>
+            </div>
           </footer>
         </div>
       </motion.article>

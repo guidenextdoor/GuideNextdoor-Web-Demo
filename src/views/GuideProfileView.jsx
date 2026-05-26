@@ -118,7 +118,8 @@ export default function GuideProfileView() {
 
     if (result.error) {
       updatePost(post.id, () => post);
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : t('explore.interactionFailed'));
+      const errorMsg = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : `${t('explore.interactionFailed')} (${errorMsg})`);
     }
   };
 
@@ -129,7 +130,8 @@ export default function GuideProfileView() {
     const result = await toggleSavedPost(post);
     if (result.error) {
       updatePost(post.id, () => post);
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : t('explore.interactionFailed'));
+      const errorMsg = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : `${t('explore.interactionFailed')} (${errorMsg})`);
     }
   };
 
@@ -315,7 +317,10 @@ function PostsTab({ coach, t, onOpenPost }) {
           <div className="p-3">
             <button type="button" className="line-clamp-2 text-left text-sm font-bold leading-5" onClick={() => onOpenPost(post.id)}>{post.caption || post.title}</button>
             <div className="mt-3 flex items-center justify-between text-xs font-black text-gnd-gray">
-              <span className="flex items-center gap-1"><Heart size={14} />{post.likes}</span>
+              <span className="flex items-center gap-1">
+                <Heart size={14} className={post.liked ? 'fill-current text-gnd-red' : ''} />
+                {post.likes}
+              </span>
               <span className="flex items-center gap-1"><MessageCircle size={14} />{post.comments}</span>
               <span>{post.displayDate}</span>
             </div>
