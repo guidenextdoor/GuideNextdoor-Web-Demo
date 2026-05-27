@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Award, Briefcase, Camera, Check, ChevronDown, Clock, Edit2, Languages, Loader2, MapPin, Save, ShieldCheck, UserCircle, X } from 'lucide-react';
+import { Award, Briefcase, Camera, Check, ChevronDown, Clock, Edit2, Languages, Loader2, MapPin, Save, Search, ShieldCheck, UserCircle, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { checkUsernameAvailability, fetchInstructorSchedule, fetchLanguages, updateInstructorProfile, uploadFile } from '../../lib/database';
 import { compressImage } from '../../lib/image-utils';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
@@ -11,6 +12,7 @@ export default function InstructorAbout() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showLangDropdown, setShowLangDropdown] = useState(false);
+  const [langSearch, setLangSearch] = useState('');
   const [form, setForm] = useState({
     nickname: '',
     username: '',
@@ -311,42 +313,99 @@ export default function InstructorAbout() {
                   <div className="mt-4 grid gap-4">
                     <div className="relative grid gap-1.5" ref={dropdownRef}>
                       <span className="text-[10px] font-black uppercase tracking-widest text-gnd-gray">Spoken Languages</span>
-                      <button
-                        type="button"
+                      <div
                         onClick={() => setShowLangDropdown(!showLangDropdown)}
-                        className="flex min-h-[42px] w-full flex-wrap gap-1.5 rounded-lg border border-gnd-cream bg-gnd-cream/30 px-3 py-2 text-left text-sm font-bold outline-none focus:border-gnd-red"
+                        className={`flex min-h-[46px] cursor-pointer w-full flex-wrap items-center gap-1.5 rounded-xl border transition-all px-3 py-2 text-left text-sm font-bold outline-none ${
+                          showLangDropdown ? 'border-gnd-red bg-white ring-4 ring-gnd-red/5' : 'border-gnd-cream bg-gnd-cream/30 hover:border-gnd-red/30'
+                        }`}
                       >
                         {selectedLangs.length > 0 ? (
                           selectedLangs.map(l => (
-                            <span key={l.id} className="inline-flex items-center gap-1 rounded-full bg-gnd-red px-2 py-0.5 text-[10px] font-black text-white">
+                            <span key={l.id} className="inline-flex items-center gap-1 rounded-lg bg-gnd-red px-2.5 py-1 text-[10px] font-black text-white shadow-sm shadow-red-900/20">
                               {t(`languages.${l.code}`) || l.native_name}
-                              <X size={10} className="cursor-pointer" onClick={(e) => { e.stopPropagation(); toggleLanguage(l.id); }} />
+                              <X 
+                                size={12} 
+                                className="cursor-pointer opacity-70 hover:opacity-100 transition-opacity" 
+                                onClick={(e) => { e.stopPropagation(); toggleLanguage(l.id); }} 
+                              />
                             </span>
                           ))
                         ) : (
-                          <span className="text-gnd-gray/50">Select languages...</span>
+                          <span className="text-gnd-gray/50 font-medium">Select languages...</span>
                         )}
-                        <ChevronDown size={16} className="ml-auto shrink-0 text-gnd-gray" />
-                      </button>
+                        <ChevronDown 
+                          size={16} 
+                          className={`ml-auto shrink-0 text-gnd-gray transition-transform duration-300 ${showLangDropdown ? 'rotate-180 text-gnd-red' : ''}`} 
+                        />
+                      </div>
 
-                      {showLangDropdown && (
-                        <div className="absolute top-full left-0 z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-gnd-cream bg-white p-2 shadow-2xl shadow-red-900/10">
-                          {allLanguages.map((lang) => (
-                            <button
-                              key={lang.id}
-                              type="button"
-                              onClick={() => toggleLanguage(lang.id)}
-                              className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-bold transition-colors hover:bg-gnd-cream/50 ${
-                                form.languageIds.includes(lang.id) ? 'bg-gnd-red/5 text-gnd-red' : 'text-gnd-dark'
-                              }`}
-                            >
-                              <span>{t(`languages.${lang.code}`) || lang.native_name}</span>
-                              <span className="text-[10px] font-medium text-gnd-gray opacity-60">{lang.native_name}</span>
-                              {form.languageIds.includes(lang.id) && <Check size={14} />}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                      <AnimatePresence>
+                        {showLangDropdown && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 5, scale: 0.98 }}
+                            transition={{ duration: 0.15, ease: 'easeOut' }}
+                            className="absolute top-full left-0 z-50 mt-2 max-h-[320px] w-full flex flex-col overflow-hidden rounded-2xl border border-gnd-cream bg-white shadow-2xl shadow-red-900/10"
+                          >
+                            <div className="sticky top-0 z-10 border-b border-gnd-cream bg-white p-2">
+                              <div className="relative">
+                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gnd-gray" />
+                                <input
+                                  type="text"
+                                  value={langSearch}
+                                  onChange={(e) => setLangSearch(e.target.value)}
+                                  placeholder="Search languages..."
+                                  className="w-full rounded-lg bg-gnd-cream/40 py-2 pl-9 pr-4 text-xs font-bold outline-none focus:bg-gnd-cream/60"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-1.5 custom-scrollbar">
+                              {allLanguages
+                                .filter(l => 
+                                  t(`languages.${l.code}`)?.toLowerCase().includes(langSearch.toLowerCase()) || 
+                                  l.native_name?.toLowerCase().includes(langSearch.toLowerCase())
+                                )
+                                .map((lang) => {
+                                  const isSelected = form.languageIds.includes(lang.id);
+                                  return (
+                                    <button
+                                      key={lang.id}
+                                      type="button"
+                                      onClick={() => toggleLanguage(lang.id)}
+                                      className={`group flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition-all hover:bg-gnd-cream/40 ${
+                                        isSelected ? 'bg-gnd-red/5' : ''
+                                      }`}
+                                    >
+                                      <div className="min-w-0">
+                                        <p className={`truncate text-sm font-bold ${isSelected ? 'text-gnd-red' : 'text-gnd-dark'}`}>
+                                          {t(`languages.${lang.code}`) || lang.native_name}
+                                        </p>
+                                        <p className="truncate text-[10px] font-medium text-gnd-gray opacity-60">
+                                          {lang.native_name}
+                                        </p>
+                                      </div>
+                                      <div className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all ${
+                                        isSelected ? 'border-gnd-red bg-gnd-red text-white scale-100' : 'border-gnd-cream group-hover:border-gnd-red/30 scale-90 opacity-0 group-hover:opacity-100'
+                                      }`}>
+                                        <Check size={12} strokeWidth={3} />
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              {allLanguages.filter(l => 
+                                t(`languages.${l.code}`)?.toLowerCase().includes(langSearch.toLowerCase()) || 
+                                l.native_name?.toLowerCase().includes(langSearch.toLowerCase())
+                              ).length === 0 && (
+                                <div className="py-8 text-center">
+                                  <p className="text-xs font-bold text-gnd-gray">No languages found</p>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
 
                     <label className="grid gap-1.5">

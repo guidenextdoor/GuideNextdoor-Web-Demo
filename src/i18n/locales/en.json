@@ -127,6 +127,7 @@
     "noSearchResultsTitle": "No posts match that search",
     "noSearchResultsBody": "Try a broader activity, place, caption, or hashtag.",
     "loginRequired": "Log in to like or save posts.",
+    "likes": "Total Likes",
     "interactionFailed": "Could not update this post. Please try again.",
     "dismiss": "Dismiss",
     "closePost": "Close post",
@@ -356,6 +357,7 @@
       "title": "Posts",
       "subtitle": "Create and manage the posts that appear on Explore and your public profile.",
       "createPost": "Create post",
+      "published": "Published Posts",
       "emptyTitle": "No posts created yet",
       "emptyBody": "Your approved posts from Supabase will appear here. The composer button is ready for the next build step."
     },
@@ -372,6 +374,21 @@
       "profileHealth": "Profile summary",
       "noServices": "No service credentials are connected yet."
     }
+  },
+  "chat": {
+    "eyebrow": "Messages",
+    "title": "Messages",
+    "subtitle": "Coordinate booking details with your coach or learner.",
+    "conversations": "Conversations",
+    "conversationCount": "{{count}} conversation",
+    "conversationCount_plural": "{{count}} conversations",
+    "emptyTitle": "No conversations yet",
+    "emptyBody": "Messages appear after a booking request is created. Use a guide profile to request a session and leave an initial note.",
+    "noMessages": "No messages in this conversation yet.",
+    "placeholder": "Write a message...",
+    "send": "Send",
+    "selectConversation": "Select a conversation to view messages.",
+    "timePending": "Time pending"
   },
   "footer": {
     "desc": "GuideNextdoor is being rebuilt as a multilingual, Supabase-backed platform. English ships first; later languages should be added by translating this locale file.",

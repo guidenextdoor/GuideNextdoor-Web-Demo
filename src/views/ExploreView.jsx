@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Bookmark, Heart, MapPin, MessageCircle, MessageSquare, Search, X, ChevronLeft, ChevronRight, Send, Loader2 } from 'lucide-react';
+import { Bookmark, Heart, MapPin, MessageCircle, MessageSquare, Search, X, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchPosts, togglePostLike, toggleSavedPost, fetchPostComments, createPostComment } from '../lib/database';
@@ -207,6 +207,7 @@ function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
             </button>
           </>
         )}
+
       </div>
       <div className="p-3">
         <Link to={profilePath} className="mb-2 flex w-full items-center gap-2 text-left">
@@ -231,7 +232,7 @@ function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
         </div>
         <div className="mt-3 flex items-center justify-between text-gnd-gray">
           <button type="button" className={`flex items-center gap-1 text-sm font-black ${post.liked ? 'text-gnd-red' : ''}`} onClick={onLike}>
-            <Heart size={17} className={post.liked ? 'fill-current' : 'text-gnd-red'} />
+            <Heart size={17} className={post.liked ? 'fill-gnd-red text-gnd-red' : 'text-gnd-red'} />
             {post.likes}
           </button>
           <span className="flex items-center gap-1 text-sm font-black" aria-label="comments">

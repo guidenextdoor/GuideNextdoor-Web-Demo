@@ -14,7 +14,6 @@ import {
   MapPin,
   MessageCircle,
   MessageSquare,
-  ShieldCheck,
   Star,
   Users,
   X,
@@ -267,7 +266,6 @@ export default function GuideProfileView() {
        <CertificateModal
          cert={selectedCert}
          onClose={() => setSelectedCert(null)}
-         t={t}
        />
       )}
 
@@ -519,7 +517,7 @@ function CredentialsTab({ coach, t, onViewCert }) {
   );
 }
 
-function CertificateModal({ cert, onClose, t }) {
+function CertificateModal({ cert, onClose }) {
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center bg-gnd-dark/90 p-4 backdrop-blur-sm md:p-8">
       <motion.div
@@ -1134,8 +1132,11 @@ function calculateBookingPrice(service, skillLevel, groupSize, durationHours) {
   const duration = Math.max(Number(durationHours) || 1, 1);
   if (!pricing) return (Number(service.minPrice) || 0) * duration;
 
-  const key = `price${Math.min(Math.max(Number(groupSize) || 1, 1), 4)}`;
-  return (Number(pricing[key]) || Number(service.minPrice) || 0) * duration;
+  const basePrice = Number(pricing.price1) || Number(service.minPrice) || 0;
+  const extraFee = Number(pricing.extraPersonFee) || 0;
+  const additionalPeople = Math.max(0, (Number(groupSize) || 1) - 1);
+  
+  return (basePrice + (extraFee * additionalPeople)) * duration;
 }
 
 function formatDurationLabel(hours, t) {

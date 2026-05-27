@@ -1,22 +1,28 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Briefcase, Plus, Clock, ChevronRight, MapPin } from 'lucide-react';
-import { fetchInstructorSchedule } from '../../lib/database';
+import { Briefcase, Plus, Clock, MapPin, Edit, Trash2 } from 'lucide-react';
+import { fetchInstructorSchedule, deleteInstructorService, createInstructorService, updateInstructorService } from '../../lib/database';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
+import ServiceModal from '../../components/instructor/ServiceModal';
 
 export default function InstructorServices() {
   const { t } = useTranslation();
-  const [state, setState] = useState({ loading: true, data: [], error: null });
+  const [state, setState] = useState({ loading: true, data: [], error: null, coach: null });
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingService, setEditingService] = useState(null);
+
+  const load = async () => {
+    setState(prev => ({ ...prev, loading: true }));
+    const result = await fetchInstructorSchedule();
+    setState({ 
+      loading: false, 
+      data: result.data?.services || [], 
+      coach: result.data?.coach || null,
+      error: result.error 
+    });
+  };
 
   useEffect(() => {
-    async function load() {
-      const result = await fetchInstructorSchedule();
-      setState({ 
-        loading: false, 
-        data: result.data?.services || [], 
-        error: result.error 
-      });
-    }
     load();
   }, []);
 
@@ -28,6 +34,32 @@ export default function InstructorServices() {
     }).format(amount);
   };
 
+  const handleOpenAdd = () => {
+    setEditingService(null);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEdit = (service) => {
+    setEditingService(service);
+    setIsModalOpen(true);
+  };
+
+  const handleDelete = async (serviceId) => {
+    if (window.confirm('Are you sure you want to delete this service?')) {
+      await deleteInstructorService(serviceId);
+      load();
+    }
+  };
+
+  const handleSave = async (formData) => {
+    if (editingService) {
+      await updateInstructorService(editingService.id, formData);
+    } else {
+      await createInstructorService(formData);
+    }
+    load();
+  };
+
   return (
     <InstructorDashboardLayout
       eyebrow={t('workspace.services.eyebrow')}
@@ -35,13 +67,16 @@ export default function InstructorServices() {
       subtitle={t('workspace.services.subtitle')}
     >
       <div className="flex justify-end">
-        <button className="flex items-center justify-center gap-2 rounded-lg bg-gnd-red px-5 py-3 text-sm font-black text-white shadow-xl shadow-red-600/20 transition-all hover:bg-gnd-dark active:scale-[0.98]">
+        <button 
+          onClick={handleOpenAdd}
+          className="flex items-center justify-center gap-2 rounded-lg bg-gnd-red px-5 py-3 text-sm font-black text-white shadow-xl shadow-red-600/20 transition-all hover:bg-gnd-dark active:scale-[0.98]"
+        >
           <Plus size={20} />
           {t('workspace.services.addService')}
         </button>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mt-6">
         {state.loading && Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="h-64 animate-pulse rounded-lg border border-gnd-cream bg-white" />
         ))}
@@ -103,19 +138,36 @@ export default function InstructorServices() {
               </div>
             </div>
 
-            <div className="px-6 pb-6">
+            <div className="flex border-t border-gnd-cream bg-gnd-cream/10">
+               <button
+                type="button"
+                onClick={() => handleOpenEdit(service)}
+                className="flex-1 flex items-center justify-center gap-2 py-4 text-sm font-black text-gnd-dark transition-colors hover:bg-gnd-cream"
+              >
+                <Edit size={16} />
+                Edit
+              </button>
+              <div className="w-px bg-gnd-cream"></div>
               <button
                 type="button"
-                className="group/btn relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-lg bg-gnd-red py-4 text-sm font-black text-white shadow-lg shadow-red-600/10 transition-all hover:bg-gnd-dark active:scale-[0.98]"
+                onClick={() => handleDelete(service.id)}
+                className="flex-1 flex items-center justify-center gap-2 py-4 text-sm font-black text-gnd-red transition-colors hover:bg-red-50"
               >
-                <Briefcase size={16} />
-                {t('workspace.overview.viewAll')}
-                <ChevronRight size={16} className="transition-transform group-hover/btn:translate-x-0.5" />
+                <Trash2 size={16} />
+                Delete
               </button>
             </div>
           </article>
         ))}
       </div>
+
+      <ServiceModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleSave}
+        service={editingService}
+        instructorId={state.coach?.id}
+      />
     </InstructorDashboardLayout>
   );
 }

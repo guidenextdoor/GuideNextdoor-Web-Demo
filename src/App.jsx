@@ -11,6 +11,7 @@ import DestinationsView from './views/DestinationsView';
 import GuideProfileView from './views/GuideProfileView';
 import BecomeGuideView from './views/BecomeGuideView';
 import LoginView from './views/LoginView';
+import MessagesView from './views/MessagesView';
 import DashboardView from './views/instructor/DashboardView';
 import InstructorOverview from './views/instructor/InstructorOverview';
 import InstructorBookings from './views/instructor/InstructorBookings';
@@ -56,6 +57,7 @@ function LanguageWrapper() {
                 <Route path="/guide/:id" element={<GuideProfileView />} />
                 <Route path="/become-guide" element={<BecomeGuideView />} />
                 <Route path="/login" element={<LoginView />} />
+                <Route path="/messages" element={<MessagesView />} />
                 <Route path="/sessions" element={<Navigate to={`/${lang}/instructor`} replace />} />
                 
                 {/* Instructor Dashboard */}

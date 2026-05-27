@@ -40,14 +40,14 @@ async function getActiveSession() {
   const shouldRefresh = Boolean(session.refresh_token && expiresAt && expiresAt * 1000 < Date.now() + 60_000);
   if (!shouldRefresh) return session;
 
-  const refreshed = await refreshSession(session.refresh_token);
+  const refreshed = await withTimeout(refreshSession(session.refresh_token), 4000, null);
   return refreshed || session;
 }
 
 async function refreshSession(refreshToken) {
   if (!databaseStatus.hasConfig || !refreshToken) return null;
 
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+  const response = await fetchWithTimeout(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -179,12 +179,20 @@ async function queryTable(tableName, searchParams = {}, session = null) {
     }
   });
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      ...buildHeaders(session),
-      Accept: 'application/json',
-    },
-  });
+  let response;
+  try {
+    console.log(`queryTable: Fetching ${tableName} from ${url.toString()}`);
+    response = await fetchWithTimeout(url.toString(), {
+      headers: {
+        ...buildHeaders(session),
+        Accept: 'application/json',
+      },
+    });
+    console.log(`queryTable: ${tableName} status: ${response.status} ${response.statusText}`);
+  } catch (error) {
+    console.error(`queryTable: ${tableName} fetch failed:`, error);
+    return { data: [], error: error.message || String(error), tableName };
+  }
 
   if (!response.ok) {
     const body = await response.text();
@@ -192,6 +200,23 @@ async function queryTable(tableName, searchParams = {}, session = null) {
   }
 
   return { data: await response.json(), error: null, tableName };
+}
+
+function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  return fetch(url, {
+    ...options,
+    signal: controller.signal,
+  }).finally(() => window.clearTimeout(timeoutId));
+}
+
+function withTimeout(promise, timeoutMs, fallback) {
+  return Promise.race([
+    promise.catch(() => fallback),
+    new Promise((resolve) => window.setTimeout(() => resolve(fallback), timeoutMs)),
+  ]);
 }
 
 async function queryFirstAvailable(resourceName, params, session = null) {
@@ -210,24 +235,15 @@ async function queryFirstAvailable(resourceName, params, session = null) {
   };
 }
 
-export async function fetchCoaches({ query = '', role = 'all', location = '' } = {}) {
-  const session = getCurrentSession();
-  const result = await queryFirstAvailable('coaches', {
-    select: '*,users(*),locations(*)',
-    limit: '24',
-    order: 'average_rating.desc',
-  }, session);
-
-  const normalized = result.data.map((row) => normalizeCoach(row));
-  const filtered = normalized.filter((coach) => {
-    const haystack = `${coach.name} ${coach.location} ${coach.role} ${coach.bio}`.toLowerCase();
-    const matchesQuery = !query || haystack.includes(query.toLowerCase());
-    const matchesRole = role === 'all' || coach.roleKey === role;
-    const matchesLocation = !location || coach.locationKey === location;
-    return matchesQuery && matchesRole && matchesLocation;
+export async function fetchCoaches() {
+  const result = await queryTable('instructor_profiles', {
+    select: '*,users(*)',
+    limit: '48',
   });
 
-  return { ...result, data: filtered };
+  console.log('fetchCoaches direct result:', result);
+  const normalized = (result.data || []).map((row) => normalizeCoach(row));
+  return { ...result, data: normalized };
 }
 
 export async function fetchServices() {
@@ -290,7 +306,7 @@ export async function fetchInstructorSchedule() {
     queryTable('instructor_availability_overrides', {
       select: '*',
       instructor_id: `eq.${coach.id}`,
-      order: 'date.asc',
+      order: 'override_date.asc',
       limit: '120',
     }, session),
     queryTable('posts', {
@@ -355,34 +371,16 @@ export async function deleteInstructorAvailabilityWindow(id) {
 
 export async function fetchPosts() {
   const session = getCurrentSession();
-  const query = {
+  const result = await queryTable('posts', {
+    select: '*,locations(*),instructor_profiles(users(*),locations(*)),user_liked:post_likes(id),user_saved:saved_posts(id)',
     approval_status: 'eq.approved',
-    limit: '60',
+    limit: '48',
     order: 'created_at.desc',
-  };
-  
-  // Base select includes a join to post_likes and saved_posts.
-  // We explicitly filter by user_id to double-ensure we only fetch the current user's state.
-  const userFilter = session ? `(user_id=eq.${session.user.id})` : '';
-  const likeJoin = `user_liked:post_likes(id)${userFilter}`;
-  const saveJoin = `user_saved:saved_posts(id)${userFilter}`;
-  const select = `*,instructor_profiles(users(*),locations(*)),locations(*),${likeJoin},${saveJoin}`;
-
-  const resultWithLocation = await queryFirstAvailable('posts', {
-    ...query,
-    select,
   }, session);
-
-  const result = resultWithLocation.error
-    ? await queryFirstAvailable('posts', {
-        ...query,
-        select: `*,instructor_profiles(users(*)),${likeJoin},${saveJoin}`,
-      }, session)
-    : resultWithLocation;
 
   return {
     ...result,
-    data: result.data.map((row) => normalizePost(row)),
+    data: (result.data || []).map((row) => normalizePost(row)),
   };
 }
 
@@ -505,7 +503,7 @@ export async function fetchLocations() {
 
   const result = await queryFirstAvailable('locations', {
     select: '*',
-    limit: '18',
+    limit: '1000',
     order: 'created_at.desc',
   });
   return { ...result, data: result.data.map((row) => normalizeLocation(row)) };
@@ -633,42 +631,44 @@ export async function fetchInstructorProfile(id) {
   const session = getCurrentSession();
   const coachResult = await fetchCoachById(id);
   if (coachResult.error || !coachResult.data) return coachResult;
+  const instructorId = coachResult.data.id;
 
   const [postsResult, servicesResult, reviewsResult, availabilityResult, overridesResult, qualificationsResult, languageResult] = await Promise.all([
     queryTable('posts', {
       select: '*,locations(*),user_liked:post_likes(id),user_saved:saved_posts(id)',
-      instructor_id: `eq.${id}`,
+      instructor_id: `eq.${instructorId}`,
       approval_status: 'eq.approved',
       order: 'created_at.desc',
       limit: '24',
     }, session),
     queryTable('instructor_services', {
       select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*)',
-      instructor_id: `eq.${id}`,
+      instructor_id: `eq.${instructorId}`,
+      is_active: 'eq.true',
       order: 'attainment_year.asc',
       limit: '24',
     }, session),
     queryTable('reviews', {
       select: '*,users(*),bookings(*)',
-      instructor_id: `eq.${id}`,
+      instructor_id: `eq.${instructorId}`,
       order: 'created_at.desc',
       limit: '20',
     }, session),
     queryTable('instructor_availability', {
       select: '*',
-      instructor_id: `eq.${id}`,
+      instructor_id: `eq.${instructorId}`,
       is_active: 'eq.true',
       order: 'day_of_week.asc,start_time.asc',
     }, session),
     queryTable('instructor_availability_overrides', {
       select: '*',
-      instructor_id: `eq.${id}`,
-      order: 'date.asc',
+      instructor_id: `eq.${instructorId}`,
+      order: 'override_date.asc',
       limit: '20',
     }, session),
     queryTable('instructor_qualifications', {
       select: '*,ref_activities(*)',
-      instructor_id: `eq.${id}`,
+      instructor_id: `eq.${instructorId}`,
       order: 'attainment_year.asc',
       limit: '48',
     }, session),
@@ -878,7 +878,7 @@ function normalizeInstructorService(row) {
     pricing.price_2_pax,
     pricing.price_3_pax,
     pricing.price_4_pax,
-  ]).filter((price) => Number.isFinite(Number(price)));
+  ]).filter((price) => price !== null && price !== undefined && price !== '' && Number.isFinite(Number(price)));
   const minPrice = prices.length ? Math.min(...prices.map(Number)) : null;
   const currency = pricingRows.find((pricing) => pricing.currency)?.currency || 'USD';
 
@@ -893,6 +893,7 @@ function normalizeInstructorService(row) {
     attainmentYear: row.attainment_year || null,
     tags: row.tags || [],
     description: row.description || row.service_description || '',
+    minDurationHours: row.min_duration_hours || 1,
     status: row.service_approval_status || 'Pending',
     rawCertUrl: row.raw_cert_url || '',
     maskedCertUrl: row.masked_cert_url || '',
@@ -1087,70 +1088,382 @@ function humanizeKey(value) {
     .join(' ');
 }
 
-export async function fetchUserMessages() {
-  const session = getCurrentSession();
+export async function fetchConversations() {
+  const session = await getActiveSession();
   if (!session) return { data: [], error: 'auth_required', tableName: 'bookings' };
 
   const [learnerResult, instructorProfileResult] = await Promise.all([
     queryTable('bookings', {
-      select: '*,instructor_services(instructor_profiles(users(display_name,avatar_url)),ref_activities(translation_key)),users(display_name,avatar_url)',
+      select: '*,messages(*),instructor_services(instructor_profiles(user_id,users(id,display_name,avatar_url,username,email)),ref_activities(translation_key)),users(id,display_name,avatar_url,username,email)',
       learner_id: `eq.${session.user.id}`,
-      order: 'lesson_date.desc',
-    }),
+      order: 'lesson_date.desc,created_at.desc',
+    }, session),
     queryTable('instructor_profiles', {
       user_id: `eq.${session.user.id}`,
       select: 'id',
       limit: '1',
-    }),
+    }, session),
   ]);
 
-  let data = learnerResult.data || [];
+  let bookingRows = learnerResult.data || [];
 
   if (instructorProfileResult.data?.[0]?.id) {
     const instructorId = instructorProfileResult.data[0].id;
-    const instructorBookings = await queryTable('bookings', {
-      select: '*,instructor_services(instructor_profiles(users(display_name,avatar_url)),ref_activities(translation_key)),users(display_name,avatar_url)',
-      'instructor_services.instructor_id': `eq.${instructorId}`,
-      order: 'lesson_date.desc',
-    });
+    const servicesResult = await queryTable('instructor_services', {
+      select: 'id',
+      instructor_id: `eq.${instructorId}`,
+      limit: '240',
+    }, session);
+    const serviceIds = (servicesResult.data || []).map((service) => service.id).filter(Boolean);
+    const instructorBookings = serviceIds.length
+      ? await queryTable('bookings', {
+          select: '*,messages(*),instructor_services(instructor_profiles(user_id,users(id,display_name,avatar_url,username,email)),ref_activities(translation_key)),users(id,display_name,avatar_url,username,email)',
+          service_id: `in.(${serviceIds.join(',')})`,
+          order: 'lesson_date.desc,created_at.desc',
+        }, session)
+      : { data: [] };
+
     if (instructorBookings.data?.length) {
-      data = [...data, ...instructorBookings.data];
-      // Deduplicate and re-sort
+      bookingRows = [...bookingRows, ...instructorBookings.data];
       const seen = new Set();
-      data = data.filter((item) => {
+      bookingRows = bookingRows.filter((item) => {
         if (seen.has(item.id)) return false;
         seen.add(item.id);
         return true;
       });
-      data.sort((a, b) => new Date(b.lesson_date) - new Date(a.lesson_date));
+      bookingRows.sort((a, b) => new Date(b.lesson_date) - new Date(a.lesson_date));
+    }
+  }
+
+  const participantResult = await queryTable('conversation_participants', {
+    select: 'conversation_id',
+    user_id: `eq.${session.user.id}`,
+    limit: '240',
+  }, session);
+
+  if (!participantResult.error && participantResult.data?.length) {
+    const conversationIds = [...new Set(participantResult.data.map((row) => row.conversation_id).filter(Boolean))];
+    const [allParticipantsResult, messagesResult, conversationsResult] = await Promise.all([
+      queryTable('conversation_participants', {
+        select: 'conversation_id,user_id,users(id,display_name,avatar_url,username,email)',
+        conversation_id: `in.(${conversationIds.join(',')})`,
+        limit: '480',
+      }, session),
+      queryTable('messages', {
+        select: '*,users(id,display_name,avatar_url,username,email)',
+        conversation_id: `in.(${conversationIds.join(',')})`,
+        order: 'created_at.asc',
+        limit: '1000',
+      }, session),
+      queryTable('conversations', {
+        select: '*',
+        id: `in.(${conversationIds.join(',')})`,
+        limit: '240',
+      }, session),
+    ]);
+
+    if (!allParticipantsResult.error && !messagesResult.error) {
+      const participantConversations = buildPersonConversations({
+        conversationIds,
+        participantRows: allParticipantsResult.data || [],
+        messageRows: messagesResult.data || [],
+        conversationRows: conversationsResult.data || [],
+        bookingRows,
+        currentUserId: session.user.id,
+      });
+
+      if (participantConversations.length) {
+        return {
+          ...participantResult,
+          data: participantConversations,
+        };
+      }
     }
   }
 
   return {
     ...learnerResult,
-    data: data.map((row) => normalizeChatRoom(row, session.user.id)),
+    data: groupBookingConversations(bookingRows, session.user.id),
   };
 }
 
-function normalizeChatRoom(row, currentUserId) {
+export async function fetchUserMessages() {
+  return fetchConversations();
+}
+
+export async function fetchConversationMessages(conversation) {
+  const session = await getActiveSession();
+  if (!session) return { data: [], error: 'auth_required', tableName: 'messages' };
+  const conversationIds = Array.isArray(conversation?.conversationIds) ? conversation.conversationIds : [];
+  const bookingIds = Array.isArray(conversation?.bookingIds) ? conversation.bookingIds : [];
+
+  if (!conversationIds.length && !bookingIds.length) return { data: [], error: 'missing_conversation', tableName: 'messages' };
+
+  const results = await Promise.all([
+    conversationIds.length
+      ? queryTable('messages', {
+          select: '*,users(id,display_name,avatar_url,username,email)',
+          conversation_id: `in.(${conversationIds.join(',')})`,
+          order: 'created_at.asc',
+          limit: '1000',
+        }, session)
+      : { data: [], error: null },
+    bookingIds.length
+      ? queryTable('messages', {
+          select: '*,users(id,display_name,avatar_url,username,email)',
+          booking_id: `in.(${bookingIds.join(',')})`,
+          order: 'created_at.asc',
+          limit: '1000',
+        }, session)
+      : { data: [], error: null },
+  ]);
+
+  const error = results.find((result) => result.error)?.error || null;
+  const seen = new Set();
+  const data = results
+    .flatMap((result) => result.data || [])
+    .filter((row) => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    })
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  return {
+    tableName: 'messages',
+    error,
+    data: data.map((row) => normalizeMessage(row, session.user.id)),
+  };
+}
+
+export async function sendConversationMessage({ conversationId, bookingId, text }) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'messages' };
+
+  const body = String(text || '').trim();
+  if ((!conversationId && !bookingId) || !body) return { data: null, error: 'missing_message', tableName: 'messages' };
+
+  const payload = {
+    sender_id: session.user.id,
+    text_content: body,
+    message_type: 'text',
+  };
+
+  if (conversationId) payload.conversation_id = conversationId;
+  if (bookingId) payload.booking_id = bookingId;
+
+  const result = await insertTable('messages', payload, session);
+
+  const row = Array.isArray(result.data) ? result.data[0] : result.data;
+  return {
+    ...result,
+    data: row ? normalizeMessage(row, session.user.id) : null,
+  };
+}
+
+function buildPersonConversations({ conversationIds, participantRows, messageRows, conversationRows, bookingRows, currentUserId }) {
+  const participantsByConversation = groupBy(participantRows, (row) => row.conversation_id);
+  const messagesByConversation = groupBy(messageRows, (row) => row.conversation_id);
+  const conversationsById = new Map(conversationRows.map((row) => [row.id, row]));
+  const bookingsByOtherParty = groupBy(bookingRows.map((row) => normalizeConversation(row, currentUserId)), (booking) => booking.otherPartyId);
+  const byPerson = new Map();
+
+  conversationIds.forEach((conversationId) => {
+    const participants = participantsByConversation.get(conversationId) || [];
+    const otherParticipant = participants.find((row) => row.user_id !== currentUserId);
+    if (!otherParticipant?.user_id) return;
+
+    const existing = byPerson.get(otherParticipant.user_id) || {
+      id: `person:${otherParticipant.user_id}`,
+      conversationIds: [],
+      bookingIds: [],
+      primaryConversationId: conversationId,
+      messages: [],
+      bookings: bookingsByOtherParty.get(otherParticipant.user_id) || [],
+      otherPartyId: otherParticipant.user_id,
+      otherPartyName: displayUserName(otherParticipant.users),
+      coachName: displayUserName(otherParticipant.users),
+      avatarUrl: otherParticipant.users?.avatar_url || '',
+      title: 'Direct messages',
+      location: '',
+      displayDate: '',
+      status: 'Active',
+      lessonDate: '',
+      startTime: '',
+      endTime: '',
+      durationHours: 0,
+      groupSize: 1,
+      skillLevel: '',
+      totalPrice: 0,
+      currency: 'USD',
+      isLearner: false,
+      lastMessage: 'No messages yet',
+      lastMessageAt: conversationsById.get(conversationId)?.last_message_at || conversationsById.get(conversationId)?.created_at || '',
+      messageCount: 0,
+    };
+
+    existing.conversationIds.push(conversationId);
+    existing.messages.push(...(messagesByConversation.get(conversationId) || []));
+    const conversationRow = conversationsById.get(conversationId);
+    if (conversationRow?.booking_id && !existing.bookingIds.includes(conversationRow.booking_id)) {
+      existing.bookingIds.push(conversationRow.booking_id);
+    }
+    byPerson.set(otherParticipant.user_id, existing);
+  });
+
+  bookingRows.map((row) => normalizeConversation(row, currentUserId)).forEach((booking) => {
+    if (!booking.otherPartyId) return;
+    const existing = byPerson.get(booking.otherPartyId);
+    if (existing) {
+      if (!existing.bookingIds.includes(booking.bookingId)) existing.bookingIds.push(booking.bookingId);
+      existing.bookings.push(booking);
+    } else {
+      byPerson.set(booking.otherPartyId, {
+        ...booking,
+        id: `person:${booking.otherPartyId}`,
+        conversationIds: [],
+        bookingIds: [booking.bookingId],
+        primaryConversationId: '',
+        bookings: [booking],
+      });
+    }
+  });
+
+  return [...byPerson.values()]
+    .map((conversation) => finalizePersonConversation(conversation, currentUserId))
+    .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+}
+
+function finalizePersonConversation(conversation, currentUserId) {
+  const messages = [...(conversation.messages || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const lastMessage = messages[messages.length - 1];
+  const latestBooking = [...(conversation.bookings || [])].sort((a, b) => new Date(b.lessonDate || 0) - new Date(a.lessonDate || 0))[0];
+
+  return {
+    ...conversation,
+    bookingIds: [...new Set([...(conversation.bookingIds || []), ...((conversation.bookings || []).map((booking) => booking.bookingId))].filter(Boolean))],
+    primaryConversationId: conversation.primaryConversationId || conversation.conversationIds?.[0] || '',
+    bookingId: latestBooking?.bookingId || conversation.bookingIds?.[0] || '',
+    title: latestBooking?.title || conversation.title || 'Direct messages',
+    location: latestBooking?.location || conversation.location || '',
+    displayDate: latestBooking?.location || formatDisplayDate(lastMessage?.created_at || conversation.lastMessageAt),
+    status: latestBooking?.status || conversation.status || 'Active',
+    lessonDate: latestBooking?.lessonDate || conversation.lessonDate || '',
+    startTime: latestBooking?.startTime || conversation.startTime || '',
+    endTime: latestBooking?.endTime || conversation.endTime || '',
+    durationHours: latestBooking?.durationHours || conversation.durationHours || 0,
+    groupSize: latestBooking?.groupSize || conversation.groupSize || 1,
+    skillLevel: latestBooking?.skillLevel || conversation.skillLevel || '',
+    totalPrice: latestBooking?.totalPrice || conversation.totalPrice || 0,
+    currency: latestBooking?.currency || conversation.currency || 'USD',
+    isLearner: latestBooking?.isLearner || conversation.isLearner || false,
+    lastMessage: lastMessage?.text_content || latestBooking?.lastMessage || 'No messages yet',
+    lastMessageAt: lastMessage?.created_at || latestBooking?.lastMessageAt || conversation.lastMessageAt || '',
+    messageCount: messages.length,
+    previewSenderName: lastMessage ? displayUserName(lastMessage.users) : '',
+    lastMessageIsMine: lastMessage?.sender_id === currentUserId,
+  };
+}
+
+function groupBookingConversations(bookingRows, currentUserId) {
+  const byPerson = new Map();
+  bookingRows.map((row) => normalizeConversation(row, currentUserId)).forEach((booking) => {
+    const key = booking.otherPartyId || booking.bookingId;
+    const existing = byPerson.get(key);
+    if (existing) {
+      existing.bookings.push(booking);
+      existing.bookingIds.push(booking.bookingId);
+      existing.messages.push(...booking.messages);
+      byPerson.set(key, finalizePersonConversation(existing, currentUserId));
+    } else {
+      byPerson.set(key, finalizePersonConversation({
+        ...booking,
+        id: `person:${key}`,
+        conversationIds: [],
+        bookingIds: [booking.bookingId],
+        primaryConversationId: '',
+        bookings: [booking],
+        messages: booking.messages,
+      }, currentUserId));
+    }
+  });
+
+  return [...byPerson.values()].sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+}
+
+function normalizeConversation(row, currentUserId) {
   const service = row.instructor_services || {};
   const instructorProfile = service.instructor_profiles || {};
   const instructorUser = instructorProfile.users || {};
   const activity = service.ref_activities || {};
   const learnerUser = row.users || {};
+  const messages = [...(Array.isArray(row.messages) ? row.messages : [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const lastMessage = messages[messages.length - 1];
 
   const isLearner = row.learner_id === currentUserId;
   const otherParty = isLearner ? instructorUser : learnerUser;
+  const durationHours = Number(row.duration_hours) || 1;
+  const startTime = formatTime(row.start_time_utc);
 
   return {
     id: row.id,
+    bookingId: row.id,
+    bookingIds: [row.id].filter(Boolean),
+    conversationIds: [],
+    primaryConversationId: '',
     title: humanizeKey(activity.translation_key || 'Chat'),
-    coachName: otherParty.display_name || otherParty.username || 'GuideNextdoor user',
+    otherPartyId: otherParty.id || (isLearner ? instructorProfile.user_id : row.learner_id) || '',
+    otherPartyName: displayUserName(otherParty),
+    coachName: displayUserName(otherParty),
     avatarUrl: otherParty.avatar_url || '',
     location: row.lesson_date ? formatDisplayDate(row.lesson_date) : 'Pending',
+    displayDate: row.lesson_date ? formatDisplayDate(row.lesson_date) : formatDisplayDate(row.created_at),
     status: row.status || 'Active',
-    lastMessage: 'Click to view conversation',
+    lessonDate: row.lesson_date || '',
+    startTime,
+    endTime: addHoursToTime(startTime, durationHours),
+    durationHours,
+    groupSize: Number(row.group_size) || 1,
+    skillLevel: row.skill_level_booked || '',
+    totalPrice: Number(row.total_price) || 0,
+    currency: row.currency || 'USD',
+    isLearner,
+    messages,
+    lastMessage: lastMessage?.text_content || 'No messages yet',
+    lastMessageAt: lastMessage?.created_at || row.created_at || '',
+    messageCount: messages.length,
   };
+}
+
+function normalizeMessage(row, currentUserId) {
+  const user = row.users || {};
+  return {
+    id: row.id,
+    bookingId: row.booking_id,
+    senderId: row.sender_id,
+    body: row.text_content || '',
+    imageUrl: row.image_url || '',
+    createdAt: row.created_at || '',
+    displayTime: formatMessageTime(row.created_at),
+    isMine: row.sender_id === currentUserId,
+    senderName: displayUserName(user),
+    avatarUrl: user.avatar_url || '',
+  };
+}
+
+function displayUserName(user = {}) {
+  return user.display_name || user.username || user.email || 'GuideNextdoor user';
+}
+
+function groupBy(items, getKey) {
+  return items.reduce((map, item) => {
+    const key = getKey(item);
+    if (!key) return map;
+    const values = map.get(key) || [];
+    values.push(item);
+    map.set(key, values);
+    return map;
+  }, new Map());
 }
 
 function normalizeComment(row) {
@@ -1331,35 +1644,6 @@ async function insertTable(tableName, payload, session = null, prefer = 'return=
   return { data: await response.json(), error: null, tableName };
 }
 
-async function requestTable(tableName, searchParams = {}, session = null) {
-  if (!databaseStatus.hasConfig) {
-    return { data: [], error: 'missing_config', tableName };
-  }
-
-  // Use provided session or try to get current one
-  const activeSession = session || getCurrentSession();
-
-  const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
-  Object.entries(searchParams).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.set(key, value);
-    }
-  });
-
-  const response = await fetch(url.toString(), {
-    headers: {
-      ...buildHeaders(activeSession),
-      Accept: 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    return { data: [], error: await response.text(), tableName };
-  }
-
-  return { data: await response.json(), error: null, tableName };
-}
-
 async function fetchAuthUser(accessToken) {
   const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     headers: {
@@ -1431,6 +1715,19 @@ function formatDisplayDate(value) {
   return formatPostDate(value);
 }
 
+function formatMessageTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return new Intl.DateTimeFormat('en', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
 function formatTime(value) {
   if (!value) return '';
   return String(value).slice(0, 5);
@@ -1450,4 +1747,160 @@ function formatWeekday(value) {
   const day = Number(value);
   const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   return labels[Number.isInteger(day) && day >= 0 && day < labels.length ? day : 0];
+}
+
+
+export async function fetchRefActivities() {
+  return queryTable("ref_activities", {
+    select: "*",
+    is_active: "eq.true",
+    order: "translation_key.asc",
+  });
+}
+
+export async function fetchRefQualifications() {
+  return queryTable('ref_qualifications', {
+    select: '*',
+    order: 'qualification_name.asc',
+  });
+}
+
+export async function deleteInstructorService(serviceId) {
+  const session = getCurrentSession();
+  if (!session) return { error: "auth_required" };
+
+  return updateTable("instructor_services", serviceId, { is_active: false }, session);
+}
+
+export async function createInstructorService(payload) {
+  const session = getCurrentSession();
+  if (!session) return { data: null, error: "auth_required" };
+
+  let finalQualId = payload.qualificationId === 'custom' ? null : (payload.qualificationId || null);
+  let certUrl = null;
+
+  // 1. Handle Custom Qualification & Upload
+  if (payload.qualificationId === 'custom' && payload.customQualification) {
+    const qualResult = await insertTable("ref_qualifications", {
+      activity_id: payload.activityId,
+      qualification_name: payload.customQualification,
+      is_verified: false,
+    }, session);
+
+    if (!qualResult.error && qualResult.data) {
+      finalQualId = Array.isArray(qualResult.data) ? qualResult.data[0].id : qualResult.data.id;
+    }
+  }
+
+  // Handle Certificate Upload
+  if (payload.certFile) {
+    const uploadResult = await uploadFile('certificates', payload.certFile);
+    if (!uploadResult.error) {
+      certUrl = uploadResult.data;
+    }
+  }
+
+  // 2. Insert service
+  const serviceResult = await insertTable("instructor_services", {
+    instructor_id: payload.instructorId,
+    activity_id: payload.activityId,
+    qualification_id: finalQualId,
+    attainment_year: Number(payload.attainmentYear) || null,
+    service_description: payload.description,
+    min_duration_hours: Number(payload.minDurationHours) || 1,
+    raw_cert_url: certUrl,
+    is_active: true,
+    service_approval_status: "approved",
+  }, session);
+
+  if (serviceResult.error) return serviceResult;
+  const service = Array.isArray(serviceResult.data) ? serviceResult.data[0] : serviceResult.data;
+
+  // 3. Insert pricing
+  if (payload.pricing && payload.pricing.length > 0) {
+    const pricingPayloads = payload.pricing.map(p => ({
+      service_id: service.id,
+      skill_level: p.skillLevel,
+      currency: p.currency || "USD",
+      price_1_pax: Number(p.price1) || null,
+      extra_person_fee: Number(p.extraPersonFee) || 0,
+    }));
+    await insertTable("instructor_pricing", pricingPayloads, session, "return=minimal");
+  }
+
+  // 4. Insert locations
+  if (payload.locationIds && payload.locationIds.length > 0) {
+    const locationPayloads = payload.locationIds.map(locId => ({
+      service_id: service.id,
+      location_id: locId,
+    }));
+    await insertTable("service_coverage_areas", locationPayloads, session, "return=minimal");
+  }
+
+  return { data: service, error: null };
+}
+
+export async function updateInstructorService(serviceId, payload) {
+  const session = getCurrentSession();
+  if (!session) return { error: "auth_required" };
+
+  const updatePayload = {};
+  if (payload.activityId !== undefined) updatePayload.activity_id = payload.activityId;
+  if (payload.qualificationId !== undefined && payload.qualificationId !== 'custom') updatePayload.qualification_id = payload.qualificationId || null;
+  if (payload.attainmentYear !== undefined) updatePayload.attainment_year = Number(payload.attainmentYear) || null;
+  if (payload.description !== undefined) updatePayload.service_description = payload.description;
+  if (payload.minDurationHours !== undefined) updatePayload.min_duration_hours = Number(payload.minDurationHours);
+
+  // Handle Certificate Upload on Edit
+  if (payload.certFile) {
+    const uploadResult = await uploadFile('certificates', payload.certFile);
+    if (!uploadResult.error) {
+      updatePayload.raw_cert_url = uploadResult.data;
+    }
+  }
+
+  // Handle Custom Qualification on Edit
+  if (payload.qualificationId === 'custom' && payload.customQualification) {
+    const qualResult = await insertTable("ref_qualifications", {
+      activity_id: payload.activityId,
+      qualification_name: payload.customQualification,
+      is_verified: false,
+    }, session);
+
+    if (!qualResult.error && qualResult.data) {
+      updatePayload.qualification_id = Array.isArray(qualResult.data) ? qualResult.data[0].id : qualResult.data.id;
+    }
+  }
+
+  if (Object.keys(updatePayload).length > 0) {
+    const updateResult = await updateTable("instructor_services", serviceId, updatePayload, session);
+    if (updateResult.error) return updateResult;
+  }
+
+  if (payload.pricing) {
+    await deleteTable("instructor_pricing", { service_id: `eq.${serviceId}` }, session);
+    if (payload.pricing.length > 0) {
+      const pricingPayloads = payload.pricing.map(p => ({
+        service_id: serviceId,
+        skill_level: p.skillLevel,
+        currency: p.currency || "USD",
+        price_1_pax: Number(p.price1) || null,
+        extra_person_fee: Number(p.extraPersonFee) || 0,
+      }));
+      await insertTable("instructor_pricing", pricingPayloads, session, "return=minimal");
+    }
+  }
+
+  if (payload.locationIds) {
+    await deleteTable("service_coverage_areas", { service_id: `eq.${serviceId}` }, session);
+    if (payload.locationIds.length > 0) {
+      const locationPayloads = payload.locationIds.map(locId => ({
+        service_id: serviceId,
+        location_id: locId,
+      }));
+      await insertTable("service_coverage_areas", locationPayloads, session, "return=minimal");
+    }
+  }
+
+  return { error: null };
 }
