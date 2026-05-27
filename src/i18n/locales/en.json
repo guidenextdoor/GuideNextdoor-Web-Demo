@@ -1,4 +1,18 @@
 {
+  "languages": {
+    "en": "English",
+    "zh-HK": "Cantonese",
+    "zh-CN": "Mandarin",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "fr": "French",
+    "es": "Spanish",
+    "de": "German",
+    "it": "Italian",
+    "ru": "Russian",
+    "th": "Thai",
+    "vi": "Vietnamese"
+  },
   "meta": {
     "title": "GuideNextdoor - Local coaching and companion platform",
     "description": "Find verified local coaches, guides, and companions for sports learning and city experiences."
@@ -349,6 +363,11 @@
       "eyebrow": "Public profile",
       "title": "About",
       "subtitle": "Review the profile information learners see before requesting a session.",
+      "edit": "Edit",
+      "usernameTaken": "Username is already taken",
+      "usernameAvailable": "Username is available",
+      "usernameChecking": "Checking availability...",
+      "usernameInvalid": "Usernames can only contain letters, numbers, underscores and dashes.",
       "bioPending": "Add an instructor intro so learners understand your background, coaching style, and what they can expect.",
       "profileHealth": "Profile summary",
       "noServices": "No service credentials are connected yet."

@@ -239,11 +239,20 @@ export async function fetchServices() {
   return { ...result, data: result.data.map((row) => normalizeService(row)) };
 }
 
+export async function fetchLanguages() {
+  const result = await queryTable('ref_languages', {
+    select: '*',
+    is_active: 'eq.true',
+    order: 'name.asc',
+  });
+  return result;
+}
+
 export async function fetchInstructorSchedule() {
   const session = await getActiveSession();
   const instructorResult = session
     ? await queryTable('instructor_profiles', {
-        select: '*,users(*),locations(*)',
+        select: '*,users(*,user_languages(*,ref_languages(*))),locations(*)',
         user_id: `eq.${session.user.id}`,
         limit: '1',
       }, session)
@@ -251,7 +260,7 @@ export async function fetchInstructorSchedule() {
 
   const fallbackResult = !instructorResult.data?.length
     ? await queryTable('instructor_profiles', {
-        select: '*,users(*),locations(*)',
+        select: '*,users(*,user_languages(*,ref_languages(*))),locations(*)',
         limit: '1',
       }, session)
     : instructorResult;
@@ -298,11 +307,12 @@ export async function fetchInstructorSchedule() {
     }, session),
   ]);
 
-  const services = await attachServiceLocations(servicesResult.data.map((row) => normalizeInstructorService(row)));
+  const servicesData = servicesResult.data || [];
+  const services = await attachServiceLocations(servicesData.map((row) => normalizeInstructorService(row)));
   const bookingsResult = await fetchInstructorServiceBookings(services, session);
-  const posts = postsResult.error ? [] : postsResult.data.map((row) => normalizePost(row));
-  const reviews = reviewsResult.error ? [] : reviewsResult.data.map((row) => normalizeReview(row));
-  const bookedSlots = bookingsResult.error ? [] : mapBookedSlotsToServices(bookingsResult.data, services);
+  const posts = (postsResult.data || []).map((row) => normalizePost(row));
+  const reviews = (reviewsResult.data || []).map((row) => normalizeReview(row));
+  const bookedSlots = bookingsResult.error ? [] : mapBookedSlotsToServices(bookingsResult.data || [], services);
 
   return {
     data: {
@@ -418,32 +428,40 @@ export async function createPostComment(postId, body) {
   }, session);
 }
 
-export async function uploadPostMedia(files) {
+export async function uploadFile(bucket, file, customPath = null) {
   const session = getCurrentSession();
   if (!session) return { data: null, error: 'auth_required' };
 
+  const fileName = customPath || `${Date.now()}-${Math.random().toString(36).substring(2, 10)}.jpg`;
+  const path = `${session.user.id}/${fileName}`;
+
+  const url = new URL(`/storage/v1/object/${bucket}/${path}`, SUPABASE_URL);
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      ...buildHeaders(session),
+      'Content-Type': file.type,
+    },
+    body: file,
+  });
+
+  if (response.ok) {
+    return { data: `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`, error: null };
+  }
+
+  return { data: null, error: await response.text() };
+}
+
+export async function uploadPostMedia(files) {
   const results = [];
   const errors = [];
 
   for (const file of files) {
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}.jpg`;
-    const path = `${session.user.id}/${fileName}`;
-
-    const url = new URL(`/storage/v1/object/posts/${path}`, SUPABASE_URL);
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        ...buildHeaders(session),
-        'Content-Type': file.type,
-      },
-      body: file,
-    });
-
-    if (response.ok) {
-      // Return the public URL
-      results.push(`${SUPABASE_URL}/storage/v1/object/public/posts/${path}`);
+    const result = await uploadFile('posts', file);
+    if (result.data) {
+      results.push(result.data);
     } else {
-      errors.push(await response.text());
+      errors.push(result.error);
     }
   }
 
@@ -496,18 +514,119 @@ export async function fetchLocations() {
 export async function fetchCoachById(id) {
   if (!id) return { data: null, error: 'missing_id', tableName: 'coaches' };
 
+  // Check if ID is likely a UUID or a username
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
   for (const tableName of tableCandidates.coaches) {
-    const result = await queryTable(tableName, {
+    const params = {
       select: '*,users(*),locations(*)',
-      id: `eq.${id}`,
       limit: '1',
-    });
-    if (!result.error) {
-      return { ...result, data: result.data[0] ? normalizeCoach(result.data[0]) : null };
+    };
+
+    if (isUuid) {
+      params.id = `eq.${id}`;
+    } else {
+      // Filter by username in the joined users table
+      // Use !inner to ensure we only get rows that have a matching user
+      params.select = '*,users!inner(*),locations(*)';
+      params['users.username'] = `eq.${id}`;
+    }
+
+    const result = await queryTable(tableName, params);
+    if (!result.error && result.data?.length > 0) {
+      return { ...result, data: normalizeCoach(result.data[0]) };
     }
   }
 
   return { data: null, error: 'not_found', tableName: tableCandidates.coaches[0] };
+}
+
+/**
+ * Checks if a username is already taken by another user.
+ */
+export async function checkUsernameAvailability(username) {
+  const session = getCurrentSession();
+  const params = {
+    select: 'id',
+    username: `eq.${username}`,
+    limit: '1',
+  };
+
+  const result = await queryTable('users', params);
+  
+  if (result.error) return { available: false, error: result.error };
+  
+  // If no user found with this username, it's available
+  if (!result.data || result.data.length === 0) return { available: true };
+  
+  // If user found, check if it's the current user
+  const isMe = session?.user?.id && result.data[0].id === session.user.id;
+  return { available: isMe };
+}
+
+/**
+ * Updates the instructor's profile (both user and instructor_profile tables).
+ */
+export async function updateInstructorProfile(updates) {
+  const session = getCurrentSession();
+  if (!session) return { error: 'auth_required' };
+
+  // 1. Update users table if needed
+  if (updates.nickname !== undefined || updates.username !== undefined || updates.avatarUrl !== undefined) {
+    const userUpdates = {};
+    if (updates.nickname !== undefined) userUpdates.nickname = updates.nickname;
+    if (updates.username !== undefined) userUpdates.username = updates.username;
+    if (updates.avatarUrl !== undefined) userUpdates.avatar_url = updates.avatarUrl;
+
+    const userResult = await updateTable('users', session.user.id, userUpdates, session);
+    if (userResult.error) return userResult;
+  }
+
+  // 2. Sync user_languages if provided
+  if (updates.languageIds !== undefined) {
+    // Delete existing languages for this user
+    await deleteTable('user_languages', { user_id: `eq.${session.user.id}` }, session);
+    
+    // Insert new languages
+    if (updates.languageIds.length > 0) {
+      const languagePayloads = updates.languageIds.map(langId => ({
+        user_id: session.user.id,
+        language_id: langId,
+      }));
+      
+      // We can't use insertTable for multiple rows easily with the current generic function 
+      // if it expects a single object, let's assume it can handle an array or loop.
+      // Most Supabase REST endpoints handle arrays for bulk insert.
+      const langResult = await insertTable('user_languages', languagePayloads, session, 'return=minimal');
+      if (langResult.error) return langResult;
+    }
+  }
+
+  // 3. Update instructor_profiles table if needed
+  if (updates.bio !== undefined) {
+    const profileUpdates = {
+      bio_description: updates.bio,
+    };
+    
+    // We need the instructor_profile ID, but we usually have the user ID.
+    // We can filter by user_id for the update if we use a custom update function or updateTable supports it.
+    // Our current updateTable uses id (primary key).
+    // Let's find the instructor_profile first or assume we have it.
+    const coachResult = await queryTable('instructor_profiles', {
+      select: 'id',
+      user_id: `eq.${session.user.id}`,
+      limit: '1',
+    }, session);
+
+    if (coachResult.error || !coachResult.data?.[0]) {
+      return { error: 'profile_not_found' };
+    }
+
+    const profileResult = await updateTable('instructor_profiles', coachResult.data[0].id, profileUpdates, session);
+    if (profileResult.error) return profileResult;
+  }
+
+  return { error: null };
 }
 
 export async function fetchInstructorProfile(id) {
@@ -515,7 +634,7 @@ export async function fetchInstructorProfile(id) {
   const coachResult = await fetchCoachById(id);
   if (coachResult.error || !coachResult.data) return coachResult;
 
-  const [postsResult, servicesResult, reviewsResult, availabilityResult, overridesResult, qualificationsResult] = await Promise.all([
+  const [postsResult, servicesResult, reviewsResult, availabilityResult, overridesResult, qualificationsResult, languageResult] = await Promise.all([
     queryTable('posts', {
       select: '*,locations(*),user_liked:post_likes(id),user_saved:saved_posts(id)',
       instructor_id: `eq.${id}`,
@@ -553,7 +672,20 @@ export async function fetchInstructorProfile(id) {
       order: 'attainment_year.asc',
       limit: '48',
     }, session),
+    queryTable('user_languages', {
+      select: '*,ref_languages(*)',
+      user_id: `eq.${coachResult.data.userId}`,
+    }, session),
   ]);
+
+  const languages = (languageResult.data || []).map(ul => ({
+    id: ul.ref_languages?.id,
+    code: ul.ref_languages?.code,
+    name: ul.ref_languages?.name,
+    nativeName: ul.ref_languages?.native_name,
+  })).filter(l => l.id);
+  
+  const coachWithLangs = { ...coachResult.data, languages };
 
   const services = servicesResult.data?.map((row) => normalizeInstructorService(row)) || [];
   const servicesWithLocations = await attachServiceLocations(services);
@@ -564,7 +696,8 @@ export async function fetchInstructorProfile(id) {
     ...row,
     instructor_profiles: {
       users: {
-        display_name: coachResult.data.name,
+        nickname: coachResult.data.nickname,
+        username: coachResult.data.username,
         avatar_url: coachResult.data.avatarUrl,
       },
       locations: null,
@@ -579,7 +712,7 @@ export async function fetchInstructorProfile(id) {
 
   return {
     data: {
-      ...coachResult.data,
+      ...coachWithLangs,
       posts,
       services: servicesWithLocations,
       reviews,
@@ -587,7 +720,7 @@ export async function fetchInstructorProfile(id) {
       availabilityOverrides,
       bookedSlots,
       qualifications,
-      stats: buildInstructorStats(coachResult.data, servicesWithLocations, posts, reviews),
+      stats: buildInstructorStats(coachWithLangs, servicesWithLocations, posts, reviews),
     },
     error: null,
     tableName: coachResult.tableName,
@@ -697,9 +830,29 @@ function normalizeCoach(row) {
   const metadata = row.metadata || {};
   const user = row.users || {};
   const location = row.locations || {};
+  
+  // Naming logic:
+  // - nickname: preferred display name (shown on wall/profile)
+  // - username: unique slug (used for URLs)
+  // - Fallbacks for legacy/mock data
+  const nickname = user.nickname || user.display_name || row.display_name || row.full_name || row.name || user.username || 'GuideNextdoor coach';
+  const username = user.username || '';
+
+  // Extract languages if joined
+  const languages = (user.user_languages || []).map(ul => ({
+    id: ul.ref_languages?.id,
+    code: ul.ref_languages?.code,
+    name: ul.ref_languages?.name,
+    nativeName: ul.ref_languages?.native_name,
+  })).filter(l => l.id);
+
   return {
     id: row.id || row.user_id || row.render_id,
-    name: user.display_name || row.display_name || row.full_name || row.name || user.username || user.email || 'GuideNextdoor coach',
+    userId: row.user_id || user.id,
+    name: nickname,
+    nickname,
+    username,
+    languages,
     role: row.role || row.plan_name || metadata.role || 'Coach',
     roleKey: row.role_key || metadata.role_key || 'coach',
     location: location.formatted_address || location.city || row.location || row.city || metadata.location || 'Location pending',
@@ -1039,7 +1192,8 @@ function normalizePost(row) {
     approvalStatus: row.approval_status || 'Pending',
     createdAt: row.created_at || '',
     displayDate: formatPostDate(row.created_at),
-    coachName: user.display_name || user.username || 'GuideNextdoor coach',
+    coachName: user.nickname || user.display_name || user.username || 'GuideNextdoor coach',
+    authorUsername: user.username || '',
     avatarUrl: user.avatar_url || profile.cover_photo_url || '',
     hashtags: row.hashtags || [],
     location: location.name || location.formatted_address || location.city || location.city_or_region || '',
@@ -1120,6 +1274,33 @@ async function deleteTable(tableName, filters, session = null) {
   }
 
   return { error: null, tableName };
+}
+
+async function updateTable(tableName, id, payload, session = null) {
+  if (!databaseStatus.hasConfig) {
+    return { data: null, error: 'missing_config', tableName };
+  }
+
+  const activeSession = session || getCurrentSession();
+  const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
+  url.searchParams.set('id', `eq.${id}`);
+
+  const response = await fetch(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...buildHeaders(activeSession),
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    return { data: null, error: await response.text(), tableName };
+  }
+
+  const data = await response.json();
+  return { data: Array.isArray(data) ? data[0] : data, error: null, tableName };
 }
 
 async function insertTable(tableName, payload, session = null, prefer = 'return=representation') {

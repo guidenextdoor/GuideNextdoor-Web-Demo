@@ -10,6 +10,7 @@ import {
   Clock,
   Heart,
   Image as ImageIcon,
+  Languages,
   MapPin,
   MessageCircle,
   MessageSquare,
@@ -195,6 +196,12 @@ export default function GuideProfileView() {
                       <span className="inline-flex items-center gap-1">
                         <MapPin size={15} className="text-gnd-red" />
                         {coach.location}
+                      </span>
+                    )}
+                    {coach.languages?.length > 0 && (
+                      <span className="inline-flex items-center gap-1">
+                        <Languages size={15} className="text-gnd-red" />
+                        {coach.languages.map(l => l.nativeName).join(', ')}
                       </span>
                     )}
                   </div>

@@ -16,12 +16,24 @@ export default function LoginView() {
   const [status, setStatus] = useState({ saving: false, error: '', notice: '' });
 
   useEffect(() => {
+    if (session && !status.saving) {
+      // If user is already logged in, send them to explore or dashboard
+      // We wait a tiny bit to let any notices show if needed, but usually just redirect
+      const timer = setTimeout(() => {
+        navigate(`/${i18n.language}/explore`, { replace: true });
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [session, status.saving, navigate, i18n.language]);
+
+  useEffect(() => {
     let cancelled = false;
     consumeAuthRedirect().then((result) => {
       if (cancelled) return;
       if (result.session) {
         setSession(result.session);
-        setStatus({ saving: false, error: '', notice: t('auth.signedIn') });
+        // Direct to explore after successful magic link / redirect
+        navigate(`/${i18n.language}/explore`, { replace: true });
       } else if (result.error) {
         setStatus({ saving: false, error: t('auth.consumeFailed'), notice: '' });
       }
@@ -57,6 +69,8 @@ export default function LoginView() {
     if (result.data?.access_token) {
       setSession(result.data);
       setStatus({ saving: false, error: '', notice: t('auth.signedIn') });
+      // Direct to explore after successful password login
+      setTimeout(() => navigate(`/${i18n.language}/explore`, { replace: true }), 500);
       return;
     }
 
@@ -84,18 +98,10 @@ export default function LoginView() {
         <p className="mt-3 max-w-xl text-sm leading-6 text-gnd-gray">{t('auth.subtitle')}</p>
 
         {session ? (
-          <div className="mt-6 rounded-2xl bg-gnd-cream p-4">
-            <p className="text-sm font-black">{session.user?.email || t('auth.signedIn')}</p>
-            <p className="mt-1 text-xs font-bold text-gnd-gray">{t('auth.sessionReady')}</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <button type="button" className="flex items-center justify-center gap-2 rounded-xl bg-gnd-dark px-5 py-3 text-sm font-black text-white" onClick={() => navigate(`/${i18n.language}/instructor`)}>
-                {t('auth.goDashboard')}
-              </button>
-              <button type="button" className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-black text-gnd-dark" onClick={handleSignOut}>
-                <LogOut size={17} />
-                {t('auth.signOut')}
-              </button>
-            </div>
+          <div className="mt-6 rounded-2xl bg-gnd-cream p-6 text-center">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-gnd-red border-t-transparent" />
+            <p className="mt-4 text-sm font-black">{t('auth.signedIn')}</p>
+            <p className="mt-1 text-xs font-bold text-gnd-gray">{t('states.loading') || 'Redirecting...'}</p>
           </div>
         ) : (
           <div className="mt-6">

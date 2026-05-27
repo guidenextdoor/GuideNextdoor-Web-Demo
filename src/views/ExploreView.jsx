@@ -132,7 +132,7 @@ export default function ExploreView() {
             onOpen={() => setSelectedPostId(post.id)}
             onLike={() => handleLike(post)}
             onSave={() => handleSave(post)}
-            profilePath={`/${i18n.language}/guide/${post.instructorId}`}
+            profilePath={`/${i18n.language}/guide/${post.authorUsername || post.instructorId}`}
           />
         ))}
       </div>
@@ -159,7 +159,7 @@ export default function ExploreView() {
           onClose={() => setSelectedPostId(null)}
           onLike={() => handleLike(selectedPost)}
           onSave={() => handleSave(selectedPost)}
-          profilePath={`/${i18n.language}/guide/${selectedPost.instructorId}`}
+          profilePath={`/${i18n.language}/guide/${selectedPost.authorUsername || selectedPost.instructorId}`}
           t={t}
         />
       )}
