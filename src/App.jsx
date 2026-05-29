@@ -8,6 +8,7 @@ import Footer from './components/Footer';
 import HomeView from './views/HomeView';
 import ExploreView from './views/ExploreView';
 import DestinationsView from './views/DestinationsView';
+import SearchView from './views/SearchView';
 import GuideProfileView from './views/GuideProfileView';
 import BecomeGuideView from './views/BecomeGuideView';
 import LoginView from './views/LoginView';
@@ -53,12 +54,13 @@ function LanguageWrapper() {
               <Routes location={location} key={location.pathname}>
                 <Route path="/" element={<HomeView />} />
                 <Route path="/explore" element={<ExploreView />} />
+                <Route path="/sessions" element={<SearchView />} />
+                <Route path="/search" element={<Navigate to={`/${lang}/sessions`} replace />} />
                 <Route path="/destinations" element={<DestinationsView />} />
                 <Route path="/guide/:id" element={<GuideProfileView />} />
                 <Route path="/become-guide" element={<BecomeGuideView />} />
                 <Route path="/login" element={<LoginView />} />
                 <Route path="/messages" element={<MessagesView />} />
-                <Route path="/sessions" element={<Navigate to={`/${lang}/instructor`} replace />} />
                 
                 {/* Instructor Dashboard */}
                 <Route path="/instructor" element={<DashboardView />}>

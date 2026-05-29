@@ -23,15 +23,30 @@ export default function InstructorServices() {
   };
 
   useEffect(() => {
-    load();
+    let cancelled = false;
+
+    fetchInstructorSchedule().then((result) => {
+      if (cancelled) return;
+      setState({
+        loading: false,
+        data: result.data?.services || [],
+        coach: result.data?.coach || null,
+        error: result.error,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const formatCurrency = (amount, currency = 'USD') => {
-    return new Intl.NumberFormat('en-US', {
+    const formatted = new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency,
       minimumFractionDigits: 0,
     }).format(amount);
+    return `${currency} ${formatted}`;
   };
 
   const handleOpenAdd = () => {

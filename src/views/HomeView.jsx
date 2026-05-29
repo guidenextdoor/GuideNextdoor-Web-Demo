@@ -22,7 +22,6 @@ export default function HomeView() {
       fetchPosts()
     ]).then(([coaches, services, locations, posts]) => {
       if (cancelled) return;
-      console.log('HomeView Fetch Results:', { coaches, services, locations, posts });
       setSummary({
         loading: false,
         coaches: coaches.data.length,
@@ -206,7 +205,7 @@ export default function HomeView() {
         </div>
       </section>
 
-      {/* 4. PLATFORM HEALTH (Subtle Metric Section) */}
+      {/* 4. TRUST METRICS */}
       <section className="mx-auto mb-20 max-w-4xl px-5 md:mb-32">
         <div className="rounded-[2.5rem] bg-gnd-dark p-8 md:p-12 text-white">
           <div className="flex flex-col items-center justify-between gap-8 md:flex-row">
@@ -216,19 +215,7 @@ export default function HomeView() {
                 <span className="text-[10px] font-black uppercase tracking-widest">{t('home.opsLabel')}</span>
               </div>
               <h2 className="mt-4 text-3xl font-black md:text-4xl">{t('home.opsTitle')}</h2>
-              <div className="mt-4 flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-white/30">
-                  <span>Env: {import.meta.env.VITE_SUPABASE_URL?.split('//')[1]?.split('.')[0] || 'missing'}</span>
-                  <span className="h-1 w-1 rounded-full bg-white/20" />
-                  <span>Raw: C:{summary.rawCoaches || 0} P:{summary.rawPosts || 0}</span>
-                </div>
-                {summary.error && (
-                  <div className="rounded-xl bg-red-500/20 p-4 border border-red-500/30">
-                    <p className="text-xs font-black uppercase tracking-widest text-red-400 mb-1">Connection Error</p>
-                    <p className="text-sm font-bold text-red-200">{typeof summary.error === 'string' ? summary.error : JSON.stringify(summary.error)}</p>
-                  </div>
-                )}
-              </div>
+              <p className="mt-4 max-w-xl text-sm font-bold leading-6 text-white/60">{t('home.opsBody')}</p>
             </div>
             
             <div className="flex flex-wrap justify-center gap-6 md:justify-end">

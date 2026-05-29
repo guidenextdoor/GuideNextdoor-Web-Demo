@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   Star, 
-  Heart, 
   Calendar, 
   Clock, 
   AlertCircle,
@@ -31,8 +30,9 @@ export default function InstructorOverview() {
 
   const coach = state.data?.coach;
   const stats = state.data?.coach?.stats || {};
-  const upcomingBookings = state.data?.bookedSlots?.filter(b => b.status === 'Confirmed').slice(0, 3) || [];
-  const pendingBookings = state.data?.bookedSlots?.filter(b => b.status === 'Pending').slice(0, 3) || [];
+  const today = toDateInputValue(new Date());
+  const upcomingBookings = state.data?.bookedSlots?.filter(b => b.status === 'Confirmed' && b.lessonDate >= today).slice(0, 3) || [];
+  const pendingBookings = state.data?.bookedSlots?.filter(b => String(b.status || '').startsWith('Pending') && b.lessonDate >= today).slice(0, 3) || [];
 
   return (
     <InstructorDashboardLayout
@@ -97,7 +97,7 @@ export default function InstructorOverview() {
   );
 }
 
-function StatCard({ label, value, icon: Icon, subValue, color }) {
+function StatCard({ label, value, subValue, color }) {
   return (
     <div className="rounded-lg border border-gnd-cream bg-white p-6 shadow-sm transition-shadow hover:shadow-md text-center">
       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray mb-3">{label}</p>
@@ -124,7 +124,7 @@ function BookingActionCard({ booking, type, onClick }) {
           <Calendar size={20} />
         </div>
         <div>
-          <p className="text-sm font-black text-gnd-dark">{booking.lessonDate}</p>
+          <p className="text-sm font-black text-gnd-dark">{booking.displayLessonDate || formatLessonDate(booking.lessonDate)}</p>
           <p className="text-xs font-bold text-gnd-gray">{booking.startTime} ({booking.durationHours}h)</p>
         </div>
       </div>
@@ -150,9 +150,23 @@ function formatEarnings(earnings) {
 }
 
 function formatMoney(value, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', {
+  const formatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency,
     maximumFractionDigits: 0,
   }).format(Number(value) || 0);
+  return `${currency} ${formatted}`;
+}
+
+function toDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatLessonDate(value) {
+  if (!value) return '-';
+  const [year, month, day] = String(value).slice(0, 10).split('-');
+  return year && month && day ? `${day}-${month}-${year}` : String(value);
 }

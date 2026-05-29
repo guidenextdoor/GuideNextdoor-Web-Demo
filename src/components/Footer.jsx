@@ -1,10 +1,34 @@
-import { Link } from 'react-router-dom';
-import { DatabaseZap } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { databaseStatus } from '../lib/database';
+import { useEffect, useState } from 'react';
+import { fetchCurrentInstructorProfile, getCurrentSession } from '../lib/database';
 
 export default function Footer() {
   const { t, i18n } = useTranslation();
+  const location = useLocation();
+  const [hasInstructorProfile, setHasInstructorProfile] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const session = getCurrentSession();
+
+    if (!session) {
+      Promise.resolve().then(() => {
+        if (!cancelled) setHasInstructorProfile(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    fetchCurrentInstructorProfile().then((result) => {
+      if (!cancelled) setHasInstructorProfile(Boolean(result.data));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname]);
 
   return (
     <footer className="bg-white border-t border-gnd-cream px-5 py-16 text-gnd-dark md:px-8 md:py-24">
@@ -24,18 +48,19 @@ export default function Footer() {
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-red">{t('nav.navigation') || 'Navigation'}</p>
             <nav className="flex flex-col gap-3 text-sm font-black text-gnd-dark">
               <Link to={`/${i18n.language}/explore`} className="transition hover:text-gnd-red">{t('nav.explore')}</Link>
-              <Link to={`/${i18n.language}/destinations`} className="transition hover:text-gnd-red">{t('nav.destinations')}</Link>
+              <Link to={`/${i18n.language}/sessions`} className="transition hover:text-gnd-red">{t('nav.sessions')}</Link>
               <Link to={`/${i18n.language}/become-guide`} className="transition hover:text-gnd-red">{t('nav.becomeGuide')}</Link>
             </nav>
           </div>
-          <div className="flex flex-col gap-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-red">{t('nav.instructor') || 'Instructor'}</p>
-            <nav className="flex flex-col gap-3 text-sm font-black text-gnd-dark">
-              <Link to={`/${i18n.language}/instructor`} className="transition hover:text-gnd-red">{t('nav.instructor')}</Link>
-              <Link to={`/${i18n.language}/messages`} className="transition hover:text-gnd-red">{t('nav.messages')}</Link>
-              <Link to={`/${i18n.language}/login`} className="transition hover:text-gnd-red">{t('nav.login')}</Link>
-            </nav>
-          </div>
+          {hasInstructorProfile && (
+            <div className="flex flex-col gap-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-red">{t('nav.instructor') || 'Instructor'}</p>
+              <nav className="flex flex-col gap-3 text-sm font-black text-gnd-dark">
+                <Link to={`/${i18n.language}/instructor`} className="transition hover:text-gnd-red">{t('nav.instructor')}</Link>
+                <Link to={`/${i18n.language}/messages`} className="transition hover:text-gnd-red">{t('nav.messages')}</Link>
+              </nav>
+            </div>
+          )}
         </div>
       </div>
       
@@ -43,14 +68,6 @@ export default function Footer() {
         <p className="text-[10px] font-black uppercase tracking-widest text-gnd-gray/50">
           © {new Date().getFullYear()} GuideNextdoor. {t('footer.rights') || 'All rights reserved.'}
         </p>
-        <div className="flex items-center gap-4 text-gnd-gray/40">
-          <div className="flex items-center gap-2 rounded-full border border-gnd-cream px-4 py-2">
-            <DatabaseZap size={14} className={databaseStatus.hasConfig ? 'text-green-500' : 'text-gnd-red'} />
-            <span className="text-[9px] font-black uppercase tracking-widest">
-              {databaseStatus.hasConfig ? t('footer.databaseReady') : t('footer.databaseMissing')}
-            </span>
-          </div>
-        </div>
       </div>
     </footer>
   );

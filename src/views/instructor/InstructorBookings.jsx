@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, DollarSign, Inbox, Clock, MapPin, Users, ChevronRight } from 'lucide-react';
+import { CalendarDays, Inbox, Clock, MapPin, Users, ChevronRight } from 'lucide-react';
 import { fetchInstructorSchedule } from '../../lib/database';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
 import BookingDetailModal from '../../components/BookingDetailModal';
@@ -140,7 +140,7 @@ function BookingCard({ booking, t, onClick }) {
             </span>
           </div>
           <h2 className="text-xl font-black text-gnd-dark truncate">
-            {booking.lessonDate}
+            {booking.displayLessonDate || formatLessonDate(booking.lessonDate)}
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-sm font-bold text-gnd-gray">
             {booking.serviceTitle && (
@@ -181,33 +181,17 @@ function BookingCard({ booking, t, onClick }) {
   );
 }
 
-function SummaryCard({ label, value, icon: Icon }) {
-  return (
-    <div className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gnd-gray">{label}</p>
-          <p className="mt-2 text-xl font-black text-gnd-dark sm:text-2xl break-words">{value}</p>
-        </div>
-        <div className="rounded-md bg-gnd-cream/50 p-2 text-gnd-red shrink-0">
-          <Icon size={20} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function formatEarnings(earnings) {
-  if (!earnings || typeof earnings !== 'object') return formatMoney(0);
-  const entries = Object.entries(earnings);
-  if (entries.length === 0) return formatMoney(0);
-  return entries.map(([curr, val]) => formatMoney(val, curr)).join(' + ');
-}
-
 function formatMoney(value, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', {
+  const formatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency,
     maximumFractionDigits: 0,
   }).format(Number(value) || 0);
+  return `${currency} ${formatted}`;
+}
+
+function formatLessonDate(value) {
+  if (!value) return '-';
+  const [year, month, day] = String(value).slice(0, 10).split('-');
+  return year && month && day ? `${day}-${month}-${year}` : String(value);
 }

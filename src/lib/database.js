@@ -9,6 +9,15 @@ const tableCandidates = {
   posts: ['posts'],
 };
 
+const PENDING_BOOKING_STATUSES = new Set([
+  'Pending',
+  'Pending instructor confirmation',
+  'Pending learner confirmation',
+]);
+
+const COMPLETION_PROMPT_MESSAGE_TYPE = 'booking_completion_prompt';
+const AUTO_COMPLETED_MESSAGE_TYPE = 'booking_auto_completed';
+
 export const databaseStatus = {
   hasConfig: Boolean(SUPABASE_URL && SUPABASE_ANON_KEY),
   projectUrl: SUPABASE_URL || '',
@@ -255,6 +264,89 @@ export async function fetchServices() {
   return { ...result, data: result.data.map((row) => normalizeService(row)) };
 }
 
+export async function fetchSessionSearchData() {
+  const [servicesResult, locationsResult, activitiesResult] = await Promise.all([
+    queryTable('instructor_services', {
+      select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*),instructor_profiles(id,user_id,users(id,display_name,avatar_url,username,email),locations(*))',
+      is_active: 'eq.true',
+      service_approval_status: 'in.(approved,Approved)',
+      order: 'attainment_year.desc',
+      limit: '240',
+    }),
+    fetchLocations(),
+    fetchRefActivities(),
+  ]);
+
+  if (servicesResult.error) {
+    return {
+      data: { results: [], locations: locationsResult.data || [], activities: activitiesResult.data || [] },
+      error: servicesResult.error,
+      tableName: servicesResult.tableName || 'instructor_services',
+    };
+  }
+
+  const services = await attachServiceLocations((servicesResult.data || []).map((row) => {
+    const service = normalizeInstructorService(row);
+    const profile = row.instructor_profiles || {};
+    const user = profile.users || {};
+    return {
+      ...service,
+      instructorId: profile.id || row.instructor_id || '',
+      instructorUserId: profile.user_id || '',
+      coachName: displayUserName(user),
+      coachUsername: user.username || '',
+      avatarUrl: user.avatar_url || '',
+      profileLocation: profile.locations ? normalizeLocation(profile.locations) : null,
+    };
+  }));
+
+  const instructorIds = [...new Set(services.map((service) => service.instructorId).filter(Boolean))];
+  const serviceIds = services.map((service) => service.id).filter(Boolean);
+
+  const [availabilityResult, busySlotsResult] = await Promise.all([
+    instructorIds.length
+      ? queryTable('instructor_availability', {
+          select: '*',
+          instructor_id: `in.(${instructorIds.join(',')})`,
+          is_active: 'eq.true',
+          order: 'day_of_week.asc,start_time.asc',
+          limit: '1000',
+        })
+      : { data: [], error: null },
+    serviceIds.length
+      ? queryTable('public_booking_busy_slots', {
+          select: '*',
+          service_id: `in.(${serviceIds.join(',')})`,
+          order: 'lesson_date.asc,start_time_utc.asc',
+          limit: '1000',
+        })
+      : { data: [], error: null },
+  ]);
+
+  const availabilityByInstructor = groupBy(
+    (availabilityResult.data || []).map((row) => normalizeAvailability({ ...row, id: row.id || `${row.instructor_id}-${row.day_of_week}-${row.start_time}` })),
+    (row) => row.instructorId,
+  );
+  const bookingsByService = groupBy((busySlotsResult.data || []).map((row) => normalizeSearchBooking(row)), (row) => row.serviceId);
+
+  return {
+    data: {
+      results: services.map((service) => ({
+        ...service,
+        availability: availabilityByInstructor.get(service.instructorId) || [],
+        bookedSlots: bookingsByService.get(service.id) || [],
+      })),
+      locations: locationsResult.data || [],
+      activities: (activitiesResult.data || []).map((activity) => ({
+        id: activity.id,
+        label: humanizeKey(activity.translation_key || activity.category_key || 'Activity'),
+      })),
+    },
+    error: availabilityResult.error || busySlotsResult.error || null,
+    tableName: availabilityResult.tableName || busySlotsResult.tableName || 'instructor_services',
+  };
+}
+
 export async function fetchLanguages() {
   const result = await queryTable('ref_languages', {
     select: '*',
@@ -262,6 +354,22 @@ export async function fetchLanguages() {
     order: 'name.asc',
   });
   return result;
+}
+
+export async function fetchCurrentInstructorProfile() {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_profiles' };
+
+  const result = await queryTable('instructor_profiles', {
+    select: 'id,user_id',
+    user_id: `eq.${session.user.id}`,
+    limit: '1',
+  }, session);
+
+  return {
+    ...result,
+    data: result.data?.[0] || null,
+  };
 }
 
 export async function fetchInstructorSchedule() {
@@ -325,7 +433,13 @@ export async function fetchInstructorSchedule() {
 
   const servicesData = servicesResult.data || [];
   const services = await attachServiceLocations(servicesData.map((row) => normalizeInstructorService(row)));
-  const bookingsResult = await fetchInstructorServiceBookings(services, session);
+  let bookingsResult = await fetchInstructorServiceBookings(services, session);
+  if (!bookingsResult.error && session && instructorResult.data?.length) {
+    const lifecycleResult = await reconcileInstructorBookingLifecycle(bookingsResult.data || [], session);
+    if (lifecycleResult.changed) {
+      bookingsResult = await fetchInstructorServiceBookings(services, session);
+    }
+  }
   const posts = (postsResult.data || []).map((row) => normalizePost(row));
   const reviews = (reviewsResult.data || []).map((row) => normalizeReview(row));
   const bookedSlots = bookingsResult.error ? [] : mapBookedSlotsToServices(bookingsResult.data || [], services);
@@ -380,7 +494,7 @@ export async function fetchPosts() {
 
   return {
     ...result,
-    data: (result.data || []).map((row) => normalizePost(row)),
+    data: (result.data || []).map((row) => normalizePost(row)).filter(isPublicQualityPost),
   };
 }
 
@@ -746,11 +860,162 @@ async function fetchInstructorServiceBookings(services, session = null) {
   if (!serviceIds.length) return { data: [], error: null, tableName: 'bookings' };
 
   return queryTable('bookings', {
-    select: '*,users(display_name,avatar_url,email),messages(*)',
+    select: '*,users(id,display_name,avatar_url,username,email),messages(*)',
     service_id: `in.(${serviceIds.join(',')})`,
     order: 'lesson_date.asc,start_time_utc.asc',
     limit: '240',
   }, session);
+}
+
+async function reconcileInstructorBookingLifecycle(bookings, session) {
+  const today = toDateInputValue(new Date());
+  const twoDaysAgo = addDaysToDateInput(today, -2);
+  let changed = false;
+
+  for (const booking of bookings) {
+    const lessonDate = booking.lesson_date || '';
+    const status = String(booking.status || 'Pending');
+    if (!lessonDate || lessonDate >= today) continue;
+
+    if (PENDING_BOOKING_STATUSES.has(status)) {
+      const cancelResult = await updateTable('bookings', booking.id, {
+        status: 'Cancelled',
+        cancelled_at: new Date().toISOString(),
+      }, session);
+      if (!cancelResult.error) {
+        await insertBookingLifecycleMessage({
+          booking,
+          session,
+          type: 'booking_cancelled',
+          text: [
+            'Booking request cancelled automatically',
+            `Service date: ${formatDateForMessage(lessonDate)}`,
+            'Reason: Request was not confirmed before the activity date.',
+          ].join('\n'),
+        });
+        changed = true;
+      }
+      continue;
+    }
+
+    if (status !== 'Confirmed') continue;
+
+    const completionPrompt = findLifecycleMessage(booking, COMPLETION_PROMPT_MESSAGE_TYPE);
+    if (!completionPrompt) {
+      const learnerName = displayUserName(booking.users);
+      await insertBookingLifecycleMessage({
+        booking,
+        session,
+        type: COMPLETION_PROMPT_MESSAGE_TYPE,
+        text: [
+          'Session completion check',
+          `Service date: ${formatDateForMessage(lessonDate)}`,
+          `Hi ${learnerName}, please confirm whether this session was completed.`,
+          'If there is no response within 2 days after the activity date, GuideNextdoor will mark this session as completed automatically.',
+        ].join('\n'),
+        metadata: {
+          learner_name: learnerName,
+          action_required: 'completion_confirmation',
+        },
+      });
+    }
+
+    if (lessonDate > twoDaysAgo) {
+      changed = !completionPrompt || changed;
+      continue;
+    }
+
+    const latestPrompt = completionPrompt || { created_at: `${lessonDate}T23:59:59.999Z` };
+    const learnerResponded = hasLearnerResponseAfterPrompt(booking, latestPrompt);
+    if (learnerResponded || findLifecycleMessage(booking, AUTO_COMPLETED_MESSAGE_TYPE)) {
+      changed = !completionPrompt || changed;
+      continue;
+    }
+
+    const completeResult = await updateTable('bookings', booking.id, { status: 'Completed' }, session);
+    if (!completeResult.error) {
+      await insertBookingLifecycleMessage({
+        booking,
+        session,
+        type: AUTO_COMPLETED_MESSAGE_TYPE,
+        text: [
+          'Session marked as completed automatically',
+          `Service date: ${formatDateForMessage(lessonDate)}`,
+          'Reason: No learner response was received within 2 days after the activity date.',
+        ].join('\n'),
+      });
+      changed = true;
+    }
+  }
+
+  return { changed };
+}
+
+function findLifecycleMessage(booking, messageType) {
+  const messages = Array.isArray(booking.messages) ? booking.messages : [];
+  const fallbackPrefix = lifecycleMessagePrefix(messageType);
+  return messages
+    .filter((message) => (
+      (
+        message.message_type === messageType
+        || (fallbackPrefix && String(message.text_content || '').startsWith(fallbackPrefix))
+      )
+      && (!message.metadata?.booking_id || message.metadata.booking_id === booking.id)
+    ))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null;
+}
+
+function lifecycleMessagePrefix(messageType) {
+  if (messageType === COMPLETION_PROMPT_MESSAGE_TYPE) return 'Session completion check';
+  if (messageType === AUTO_COMPLETED_MESSAGE_TYPE) return 'Session marked as completed automatically';
+  return '';
+}
+
+function hasLearnerResponseAfterPrompt(booking, promptMessage) {
+  if (!booking.learner_id || !promptMessage?.created_at) return false;
+  const promptTime = new Date(promptMessage.created_at).getTime();
+  if (Number.isNaN(promptTime)) return false;
+
+  return (booking.messages || []).some((message) => (
+    message.sender_id === booking.learner_id
+    && new Date(message.created_at).getTime() > promptTime
+  ));
+}
+
+async function insertBookingLifecycleMessage({ booking, session, type, text, metadata = {} }) {
+  const basePayload = {
+    booking_id: booking.id,
+    sender_id: session.user.id,
+    text_content: text,
+  };
+  const richPayload = {
+    ...basePayload,
+    message_type: type,
+    metadata: {
+      booking_id: booking.id,
+      lesson_date: booking.lesson_date || '',
+      lifecycle_event: type,
+      system_generated: true,
+      ...metadata,
+    },
+  };
+  const attempts = [];
+  if (booking.conversation_id) {
+    attempts.push({ ...richPayload, conversation_id: booking.conversation_id });
+    attempts.push({ ...basePayload, conversation_id: booking.conversation_id });
+  }
+  attempts.push(richPayload);
+  attempts.push(basePayload);
+
+  for (const attempt of attempts) {
+    const result = await insertTable('messages', attempt, session, 'return=minimal');
+    if (!result.error) {
+      if (booking.conversation_id) await updateTable('conversations', booking.conversation_id, { last_message_at: new Date().toISOString() }, session);
+      return result;
+    }
+  }
+
+  return { error: 'message_insert_failed', tableName: 'messages' };
 }
 
 export async function submitGuideApplication(payload) {
@@ -785,8 +1050,15 @@ export async function submitGuideApplication(payload) {
 }
 
 export async function submitBookingRequest(payload) {
-  const session = getCurrentSession();
+  const session = await getActiveSession();
   if (!session) return { data: null, error: 'auth_required', tableName: 'bookings' };
+
+  const instructorUserId = await fetchServiceInstructorUserId(payload.serviceId, session);
+  const conversationResult = instructorUserId
+    ? await ensureDirectConversationWithUser(instructorUserId)
+    : { data: null, error: null };
+  const conversationId = conversationResult.data?.primaryConversationId || '';
+  const messageTarget = conversationResult.data?.otherPartyUsername || instructorUserId || '';
 
   const bookingPayload = {
     learner_id: session.user.id,
@@ -800,19 +1072,33 @@ export async function submitBookingRequest(payload) {
     total_price: Number(payload.totalPrice) || 0,
     status: 'Pending',
   };
+  if (conversationId) bookingPayload.conversation_id = conversationId;
 
-  const bookingResult = await insertTable('bookings', bookingPayload, session);
+  let bookingResult = await insertTable('bookings', bookingPayload, session);
+  if (bookingResult.error && bookingPayload.conversation_id && bookingResult.error.includes('conversation_id')) {
+    delete bookingPayload.conversation_id;
+    bookingResult = await insertTable('bookings', bookingPayload, session);
+  }
+  if (bookingResult.error && bookingPayload.location_details && bookingResult.error.includes('location_details')) {
+    delete bookingPayload.location_details;
+    bookingResult = await insertTable('bookings', bookingPayload, session);
+  }
   if (bookingResult.error) return bookingResult;
 
   const booking = Array.isArray(bookingResult.data) ? bookingResult.data[0] : bookingResult.data;
-  const note = String(payload.note || '').trim();
+  if (booking?.id && conversationId && !bookingPayload.conversation_id) {
+    await updateTable('bookings', booking.id, { conversation_id: conversationId }, session);
+  }
+  const requestMessage = buildBookingRequestMessage(payload);
 
-  if (booking?.id && note) {
-    const messageResult = await insertTable('messages', {
-      booking_id: booking.id,
-      sender_id: session.user.id,
-      text_content: note,
-    }, session, 'return=minimal');
+  if (booking?.id && requestMessage) {
+    const messageResult = await insertBookingRequestMessage({
+      booking,
+      conversationId,
+      payload,
+      requestMessage,
+      session,
+    });
 
     if (messageResult.error) {
       return {
@@ -821,9 +1107,105 @@ export async function submitBookingRequest(payload) {
         tableName: 'messages',
       };
     }
+
+    if (conversationId) {
+      await updateTable('conversations', conversationId, { last_message_at: new Date().toISOString() }, session);
+    }
   }
 
-  return { data: booking, error: null, tableName: 'bookings' };
+  return {
+    data: {
+      ...booking,
+      conversationId,
+      messageTarget,
+    },
+    error: null,
+    tableName: 'bookings',
+  };
+}
+
+async function insertBookingRequestMessage({ booking, conversationId, payload, requestMessage, session }) {
+  const basePayload = {
+    booking_id: booking.id,
+    sender_id: session.user.id,
+    text_content: requestMessage,
+  };
+  const richPayload = {
+    ...basePayload,
+    message_type: 'booking_request',
+    metadata: {
+      booking_id: booking.id,
+      service_id: payload.serviceId,
+      service_title: payload.serviceTitle || '',
+      lesson_date: payload.lessonDate,
+      start_time: payload.startTime,
+      duration_hours: Number(payload.durationHours) || 1,
+      group_size: Number(payload.groupSize) || 1,
+      skill_level: payload.skillLevel,
+      location_details: payload.locationDetails || '-',
+      total_price: Number(payload.totalPrice) || 0,
+      currency: payload.currency || 'USD',
+      note: String(payload.note || '').trim() || '-',
+    },
+  };
+  const attempts = [];
+
+  if (conversationId) {
+    attempts.push({ ...richPayload, conversation_id: conversationId });
+    attempts.push({ ...basePayload, conversation_id: conversationId });
+  }
+  attempts.push(richPayload);
+  attempts.push(basePayload);
+
+  let lastResult = { error: 'message_insert_failed', tableName: 'messages' };
+  for (const attempt of attempts) {
+    lastResult = await insertTable('messages', attempt, session, 'return=minimal');
+    if (!lastResult.error) return lastResult;
+  }
+
+  return lastResult;
+}
+
+function buildBookingRequestMessage(payload) {
+  const note = String(payload.note || '').trim();
+  const lines = [
+    'Booking request',
+    `Service: ${payload.serviceTitle || 'Session'}`,
+    `Date: ${formatDateForMessage(payload.lessonDate)}`,
+    `Start time: ${payload.startTime || ''}`,
+    `Duration: ${Number(payload.durationHours) || 1} ${Number(payload.durationHours) === 1 ? 'hour' : 'hours'}`,
+    `Group size: ${Number(payload.groupSize) || 1} pax`,
+    `Skill level: ${payload.skillLevel || ''}`,
+    `Location: ${payload.locationDetails || '-'}`,
+    `Message: ${note || '-'}`,
+  ];
+
+  lines.push(`Estimated total: ${formatAmountForMessage(payload.totalPrice, payload.currency)}`);
+
+  return lines.filter(Boolean).join('\n');
+}
+
+function formatDateForMessage(value) {
+  if (!value) return '';
+  const [year, month, day] = String(value).split('-');
+  return year && month && day ? `${day}-${month}-${year}` : String(value);
+}
+
+function formatAmountForMessage(value, currency = 'USD') {
+  const amount = Number(value) || 0;
+  return `${currency || 'USD'} ${amount.toLocaleString('en', { maximumFractionDigits: 0 })}`;
+}
+
+async function fetchServiceInstructorUserId(serviceId, session) {
+  if (!serviceId) return '';
+
+  const result = await queryTable('instructor_services', {
+    select: 'instructor_profiles(user_id)',
+    id: `eq.${serviceId}`,
+    limit: '1',
+  }, session);
+
+  return result.data?.[0]?.instructor_profiles?.user_id || '';
 }
 
 function normalizeCoach(row) {
@@ -855,7 +1237,7 @@ function normalizeCoach(row) {
     languages,
     role: row.role || row.plan_name || metadata.role || 'Coach',
     roleKey: row.role_key || metadata.role_key || 'coach',
-    location: location.formatted_address || location.city || row.location || row.city || metadata.location || 'Location pending',
+    location: location.formatted_address || location.city || row.location || row.city || metadata.location || 'Location to confirm',
     locationKey: location.id || row.primary_location_id || row.location_key || metadata.location_key || '',
     bio: row.bio_description || row.bio || row.description || row.error || metadata.bio || '',
     rating: row.average_rating || row.rating || metadata.rating || null,
@@ -920,7 +1302,7 @@ function normalizeService(row) {
     title: row.title || row.name || metadata.title || humanizeKey(activity.translation_key || activity.category_key || 'Untitled service'),
     coachName: row.coach_name || metadata.coach_name || 'GuideNextdoor coach',
     status: row.service_approval_status || row.status || metadata.status || 'draft',
-    location: row.location || metadata.location || 'Location pending',
+    location: row.location || metadata.location || 'Location to confirm',
     price: row.price || metadata.price || null,
   };
 }
@@ -972,6 +1354,7 @@ function normalizeReview(row) {
 function normalizeAvailability(row) {
   return {
     id: row.id,
+    instructorId: row.instructor_id || '',
     dayOfWeek: row.day_of_week,
     dayLabel: formatWeekday(row.day_of_week),
     startTime: formatTime(row.start_time),
@@ -1001,6 +1384,7 @@ function normalizeBookedSlot(row) {
 
   return {
     id: row.id,
+    conversationId: row.conversation_id || '',
     serviceId: row.service_id,
     serviceTitle: '',
     lessonDate: row.lesson_date || '',
@@ -1012,12 +1396,29 @@ function normalizeBookedSlot(row) {
     totalPrice,
     currency: row.currency || 'USD',
     status: row.status || 'Pending',
+    displayLessonDate: formatLessonDate(row.lesson_date),
     locationDetails: row.location_details || '',
+    learnerId: row.learner_id || user.id || '',
+    learnerUsername: user.username || '',
     learnerName: user.display_name || user.email || 'GuideNextdoor learner',
     learnerAvatar: user.avatar_url || '',
     learnerNote: firstMessage?.text_content || '',
     createdAt: row.created_at || '',
     cancelledAt: row.cancelled_at || null,
+  };
+}
+
+function normalizeSearchBooking(row) {
+  const durationHours = Number(row.duration_hours) || 1;
+  const startTime = formatTime(row.start_time_utc);
+  return {
+    id: row.id,
+    serviceId: row.service_id,
+    lessonDate: row.lesson_date || '',
+    startTime,
+    endTime: addHoursToTime(startTime, durationHours),
+    durationHours,
+    status: row.status || 'Pending',
   };
 }
 
@@ -1081,11 +1482,36 @@ function toDateInputMonth(date) {
 }
 
 function humanizeKey(value) {
-  return String(value || '')
+  const cleaned = String(value || '').replace(/^activity[._-]+/i, '');
+  return cleaned
     .split(/[._-]/)
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+function inferLocationFromText(...parts) {
+  const text = parts
+    .flatMap((part) => Array.isArray(part) ? part : [part])
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  const knownLocations = [
+    ['Hong Kong', ['hong kong', 'hongkong', 'hk', 'victoria park', 'mong kok', 'sham shui po', 'sai kung', 'tsim sha tsui']],
+    ['Niseko', ['niseko', 'hirafu', 'hokkaido', 'yotei', 'furano']],
+    ['Hakuba', ['hakuba', 'happo-one', 'goryu']],
+    ['Bali', ['bali', 'canggu', 'seminyak', 'echo beach']],
+    ['Kyoto', ['kyoto', 'gion', 'arashiyama', 'fushimi inari']],
+    ['Tokyo', ['tokyo', 'shinjuku', 'shibuya']],
+    ['Osaka', ['osaka']],
+    ['Macau', ['macau']],
+    ['Bangkok', ['bangkok']],
+    ['Seoul', ['seoul', 'itaewon', 'hongdae']],
+    ['Taipei', ['taipei', 'elephant mountain']],
+    ['Melbourne', ['melbourne']],
+  ];
+
+  return knownLocations.find(([, aliases]) => aliases.some((alias) => text.includes(alias)))?.[0] || '';
 }
 
 export async function fetchConversations() {
@@ -1191,9 +1617,209 @@ export async function fetchUserMessages() {
   return fetchConversations();
 }
 
+export async function ensureDirectConversationWithUser(userIdentifier) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'conversations' };
+  const resolvedUser = await resolveMessageRecipient(userIdentifier, session);
+  if (resolvedUser.error || !resolvedUser.data?.id) {
+    return { data: null, error: resolvedUser.error || 'recipient_not_found', tableName: 'users' };
+  }
+  const otherUserId = resolvedUser.data.id;
+  if (!otherUserId || otherUserId === session.user.id) return { data: null, error: 'invalid_recipient', tableName: 'conversations' };
+
+  const existingPair = await fetchPairConversation(session.user.id, otherUserId, session);
+  if (existingPair.data) return existingPair;
+
+  const participantResult = await queryTable('conversation_participants', {
+    select: 'conversation_id,user_id,users(id,display_name,avatar_url,username,email)',
+    user_id: `in.(${session.user.id},${otherUserId})`,
+    limit: '500',
+  }, session);
+
+  if (!participantResult.error && participantResult.data?.length) {
+    const grouped = groupBy(participantResult.data, (row) => row.conversation_id);
+    const existingConversationId = [...grouped.entries()]
+      .find(([, participants]) => {
+        const ids = participants.map((participant) => participant.user_id);
+        return ids.includes(session.user.id) && ids.includes(otherUserId);
+      })?.[0];
+
+    if (existingConversationId) {
+      const conversations = await fetchConversations();
+      const existing = (conversations.data || []).find((conversation) => conversation.conversationIds?.includes(existingConversationId));
+      if (existing) return { ...conversations, data: existing };
+    }
+  }
+
+  const otherUser = resolvedUser.data;
+
+  const buildPendingConversation = (error = null) => ({
+    data: finalizePersonConversation({
+      id: `person:${otherUserId}`,
+      conversationIds: [],
+      bookingIds: [],
+      primaryConversationId: '',
+      pendingDirectUserId: otherUserId,
+      messages: [],
+      bookings: [],
+      otherPartyId: otherUserId,
+      otherPartyUsername: otherUser.username || '',
+      otherPartyName: displayUserName(otherUser),
+      coachName: displayUserName(otherUser),
+      avatarUrl: otherUser.avatar_url || '',
+      title: 'Direct messages',
+      location: '',
+      displayDate: formatDisplayDate(new Date().toISOString()),
+      status: 'Active',
+      lessonDate: '',
+      startTime: '',
+      endTime: '',
+      durationHours: 0,
+      groupSize: 1,
+      skillLevel: '',
+      totalPrice: 0,
+      currency: 'USD',
+      isLearner: false,
+      lastMessage: 'No messages yet',
+      lastMessageAt: new Date().toISOString(),
+      messageCount: 0,
+    }, session.user.id),
+    error,
+    tableName: 'conversations',
+  });
+
+  const conversationId = crypto.randomUUID();
+  const pairIds = orderedPairIds(session.user.id, otherUserId);
+  const conversationPayload = {
+    id: conversationId,
+    participant_one_id: pairIds[0],
+    participant_two_id: pairIds[1],
+    last_message_at: new Date().toISOString(),
+  };
+  let conversationResult = await insertTable('conversations', conversationPayload, session, 'return=minimal');
+  if (conversationResult.error && conversationResult.error.includes('participant_')) {
+    delete conversationPayload.participant_one_id;
+    delete conversationPayload.participant_two_id;
+    conversationResult = await insertTable('conversations', conversationPayload, session, 'return=minimal');
+  }
+  if (
+    conversationResult.error
+    && (
+      conversationResult.error.includes('duplicate key')
+      || conversationResult.error.includes('23505')
+      || conversationResult.error.includes('conversations_unique_person_pair')
+    )
+  ) {
+    const duplicatePair = await fetchPairConversation(session.user.id, otherUserId, session);
+    if (duplicatePair.data) return duplicatePair;
+  }
+  if (conversationResult.error) return buildPendingConversation(conversationResult.error);
+
+  const ownParticipantResult = await insertTable('conversation_participants', {
+    conversation_id: conversationId,
+    user_id: session.user.id,
+  }, session, 'return=minimal');
+  if (ownParticipantResult.error) return buildPendingConversation(ownParticipantResult.error);
+
+  const otherParticipantResult = await insertTable('conversation_participants', {
+    conversation_id: conversationId,
+    user_id: otherUserId,
+  }, session, 'return=minimal');
+  if (otherParticipantResult.error) return buildPendingConversation(otherParticipantResult.error);
+
+  return {
+    data: finalizePersonConversation({
+      id: `person:${otherUserId}`,
+      conversationIds: [conversationId],
+      bookingIds: [],
+      primaryConversationId: conversationId,
+      messages: [],
+      bookings: [],
+      otherPartyId: otherUserId,
+      otherPartyUsername: otherUser.username || '',
+      otherPartyName: displayUserName(otherUser),
+      coachName: displayUserName(otherUser),
+      avatarUrl: otherUser.avatar_url || '',
+      title: 'Direct messages',
+      location: '',
+      displayDate: formatDisplayDate(new Date().toISOString()),
+      status: 'Active',
+      lessonDate: '',
+      startTime: '',
+      endTime: '',
+      durationHours: 0,
+      groupSize: 1,
+      skillLevel: '',
+      totalPrice: 0,
+      currency: 'USD',
+      isLearner: false,
+      lastMessage: 'No messages yet',
+      lastMessageAt: new Date().toISOString(),
+      messageCount: 0,
+    }, session.user.id),
+    error: null,
+    tableName: 'conversations',
+  };
+}
+
+async function resolveMessageRecipient(identifier, session) {
+  const value = String(identifier || '').trim();
+  if (!value) return { data: null, error: 'invalid_recipient', tableName: 'users' };
+
+  const filterKey = isUuid(value) ? 'id' : 'username';
+  const result = await queryTable('users', {
+    select: 'id,display_name,avatar_url,username,email',
+    [filterKey]: `eq.${value}`,
+    limit: '1',
+  }, session);
+
+  return {
+    ...result,
+    data: result.data?.[0] || null,
+  };
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function fetchPairConversation(currentUserId, otherUserId, session) {
+  const [participantOneId, participantTwoId] = orderedPairIds(currentUserId, otherUserId);
+  const pairResult = await queryTable('conversations', {
+    select: '*',
+    participant_one_id: `eq.${participantOneId}`,
+    participant_two_id: `eq.${participantTwoId}`,
+    merged_into_conversation_id: 'is.null',
+    limit: '1',
+  }, session);
+
+  if (pairResult.error || !pairResult.data?.[0]?.id) {
+    return { data: null, error: pairResult.error, tableName: 'conversations' };
+  }
+
+  const conversations = await fetchConversations();
+  const existing = (conversations.data || []).find((conversation) => (
+    conversation.conversationIds?.includes(pairResult.data[0].id)
+    || conversation.primaryConversationId === pairResult.data[0].id
+    || conversation.otherPartyId === otherUserId
+  ));
+
+  return {
+    ...pairResult,
+    data: existing || null,
+  };
+}
+
+function orderedPairIds(userId, otherUserId) {
+  return [userId, otherUserId].sort();
+}
+
 export async function fetchConversationMessages(conversation) {
   const session = await getActiveSession();
   if (!session) return { data: [], error: 'auth_required', tableName: 'messages' };
+  if (conversation?.pendingDirectUserId && !conversation?.primaryConversationId) {
+    return { data: [], error: null, tableName: 'messages' };
+  }
   const conversationIds = Array.isArray(conversation?.conversationIds) ? conversation.conversationIds : [];
   const bookingIds = Array.isArray(conversation?.bookingIds) ? conversation.bookingIds : [];
 
@@ -1220,20 +1846,49 @@ export async function fetchConversationMessages(conversation) {
 
   const error = results.find((result) => result.error)?.error || null;
   const seen = new Set();
-  const data = results
+  const data = collapseDuplicateLifecycleMessages(results
     .flatMap((result) => result.data || [])
     .filter((row) => {
       if (seen.has(row.id)) return false;
       seen.add(row.id);
       return true;
     })
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
 
   return {
     tableName: 'messages',
     error,
     data: data.map((row) => normalizeMessage(row, session.user.id)),
   };
+}
+
+function collapseDuplicateLifecycleMessages(messages) {
+  const seenLifecycle = new Set();
+
+  return messages.filter((message) => {
+    const key = lifecycleMessageDedupeKey(message);
+    if (!key) return true;
+    if (seenLifecycle.has(key)) return false;
+    seenLifecycle.add(key);
+    return true;
+  });
+}
+
+function lifecycleMessageDedupeKey(message) {
+  const type = normalizeLifecycleMessageType(message);
+  if (!type) return '';
+  const bookingId = message.booking_id || message.metadata?.booking_id || '';
+  return `${bookingId}:${type}`;
+}
+
+function normalizeLifecycleMessageType(message) {
+  const type = message.message_type || message.metadata?.lifecycle_event || '';
+  if (type === COMPLETION_PROMPT_MESSAGE_TYPE || type === AUTO_COMPLETED_MESSAGE_TYPE) return type;
+
+  const body = String(message.text_content || '');
+  if (body.startsWith('Session completion check')) return COMPLETION_PROMPT_MESSAGE_TYPE;
+  if (body.startsWith('Session marked as completed automatically')) return AUTO_COMPLETED_MESSAGE_TYPE;
+  return '';
 }
 
 export async function sendConversationMessage({ conversationId, bookingId, text }) {
@@ -1253,12 +1908,93 @@ export async function sendConversationMessage({ conversationId, bookingId, text 
   if (bookingId) payload.booking_id = bookingId;
 
   const result = await insertTable('messages', payload, session);
+  if (!result.error && conversationId) {
+    await updateTable('conversations', conversationId, { last_message_at: new Date().toISOString() }, session);
+  }
 
   const row = Array.isArray(result.data) ? result.data[0] : result.data;
   return {
     ...result,
     data: row ? normalizeMessage(row, session.user.id) : null,
   };
+}
+
+export async function updateBookingRequest({ bookingId, conversationId, updates, summary }) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'bookings' };
+  if (!bookingId) return { data: null, error: 'missing_booking', tableName: 'bookings' };
+
+  const bookingPayload = normalizeBookingUpdatePayload(updates);
+  let bookingResult = Object.keys(bookingPayload).length
+    ? await updateTable('bookings', bookingId, bookingPayload, session)
+    : { data: null, error: null, tableName: 'bookings' };
+
+  if (bookingResult.error && bookingPayload.location_details && bookingResult.error.includes('location_details')) {
+    delete bookingPayload.location_details;
+    bookingResult = await updateTable('bookings', bookingId, bookingPayload, session);
+  }
+  if (bookingResult.error) return bookingResult;
+
+  const messageText = String(summary || '').trim();
+  if (messageText) {
+    const messageResult = await insertBookingUpdateMessage({
+      bookingId,
+      conversationId,
+      text: messageText,
+      session,
+      updates,
+    });
+    if (messageResult.error) return { data: bookingResult.data, error: messageResult.error, tableName: 'messages' };
+  }
+
+  return { data: bookingResult.data, error: null, tableName: 'bookings' };
+}
+
+function normalizeBookingUpdatePayload(updates = {}) {
+  const payload = {};
+  if (updates.lessonDate !== undefined) payload.lesson_date = updates.lessonDate;
+  if (updates.startTime !== undefined) payload.start_time_utc = updates.startTime;
+  if (updates.durationHours !== undefined) payload.duration_hours = Number(updates.durationHours) || 1;
+  if (updates.groupSize !== undefined) payload.group_size = Number(updates.groupSize) || 1;
+  if (updates.skillLevel !== undefined) payload.skill_level_booked = updates.skillLevel;
+  if (updates.locationDetails !== undefined) payload.location_details = updates.locationDetails || null;
+  if (updates.totalPrice !== undefined) payload.total_price = Number(updates.totalPrice) || 0;
+  if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.cancelledAt !== undefined) payload.cancelled_at = updates.cancelledAt;
+  return payload;
+}
+
+async function insertBookingUpdateMessage({ bookingId, conversationId, text, session, updates }) {
+  const basePayload = {
+    booking_id: bookingId,
+    sender_id: session.user.id,
+    text_content: text,
+  };
+  const richPayload = {
+    ...basePayload,
+    message_type: updates?.status === 'Cancelled' ? 'booking_cancelled' : 'booking_update',
+    metadata: {
+      booking_id: bookingId,
+      updates: updates || {},
+    },
+  };
+  const attempts = [];
+  if (conversationId) {
+    attempts.push({ ...richPayload, conversation_id: conversationId });
+    attempts.push({ ...basePayload, conversation_id: conversationId });
+  }
+  attempts.push(richPayload);
+  attempts.push(basePayload);
+
+  let lastResult = { error: 'message_insert_failed', tableName: 'messages' };
+  for (const attempt of attempts) {
+    lastResult = await insertTable('messages', attempt, session, 'return=minimal');
+    if (!lastResult.error) {
+      if (conversationId) await updateTable('conversations', conversationId, { last_message_at: new Date().toISOString() }, session);
+      return lastResult;
+    }
+  }
+  return lastResult;
 }
 
 function buildPersonConversations({ conversationIds, participantRows, messageRows, conversationRows, bookingRows, currentUserId }) {
@@ -1281,6 +2017,7 @@ function buildPersonConversations({ conversationIds, participantRows, messageRow
       messages: [],
       bookings: bookingsByOtherParty.get(otherParticipant.user_id) || [],
       otherPartyId: otherParticipant.user_id,
+      otherPartyUsername: otherParticipant.users?.username || '',
       otherPartyName: displayUserName(otherParticipant.users),
       coachName: displayUserName(otherParticipant.users),
       avatarUrl: otherParticipant.users?.avatar_url || '',
@@ -1346,7 +2083,7 @@ function finalizePersonConversation(conversation, currentUserId) {
     bookingId: latestBooking?.bookingId || conversation.bookingIds?.[0] || '',
     title: latestBooking?.title || conversation.title || 'Direct messages',
     location: latestBooking?.location || conversation.location || '',
-    displayDate: latestBooking?.location || formatDisplayDate(lastMessage?.created_at || conversation.lastMessageAt),
+    displayDate: formatDisplayDate(lastMessage?.created_at || conversation.lastMessageAt || latestBooking?.lessonDate),
     status: latestBooking?.status || conversation.status || 'Active',
     lessonDate: latestBooking?.lessonDate || conversation.lessonDate || '',
     startTime: latestBooking?.startTime || conversation.startTime || '',
@@ -1413,6 +2150,7 @@ function normalizeConversation(row, currentUserId) {
     primaryConversationId: '',
     title: humanizeKey(activity.translation_key || 'Chat'),
     otherPartyId: otherParty.id || (isLearner ? instructorProfile.user_id : row.learner_id) || '',
+    otherPartyUsername: otherParty.username || '',
     otherPartyName: displayUserName(otherParty),
     coachName: displayUserName(otherParty),
     avatarUrl: otherParty.avatar_url || '',
@@ -1425,9 +2163,11 @@ function normalizeConversation(row, currentUserId) {
     durationHours,
     groupSize: Number(row.group_size) || 1,
     skillLevel: row.skill_level_booked || '',
+    locationDetails: row.location_details || '',
     totalPrice: Number(row.total_price) || 0,
     currency: row.currency || 'USD',
     isLearner,
+    learnerName: displayUserName(learnerUser),
     messages,
     lastMessage: lastMessage?.text_content || 'No messages yet',
     lastMessageAt: lastMessage?.created_at || row.created_at || '',
@@ -1443,6 +2183,8 @@ function normalizeMessage(row, currentUserId) {
     senderId: row.sender_id,
     body: row.text_content || '',
     imageUrl: row.image_url || '',
+    messageType: row.message_type || 'text',
+    metadata: row.metadata || {},
     createdAt: row.created_at || '',
     displayTime: formatMessageTime(row.created_at),
     isMine: row.sender_id === currentUserId,
@@ -1483,9 +2225,21 @@ function normalizeComment(row) {
 function normalizePost(row) {
   const profile = row.instructor_profiles || {};
   const user = profile.users || {};
-  const location = row.locations || profile.locations || {};
+  const explicitLocation = row.locations || {};
+  const profileLocation = profile.locations || {};
   const imageUrls = Array.isArray(row.image_urls) ? row.image_urls : [];
   const caption = row.caption || row.title || '';
+  const inferredLocation = inferLocationFromText(row.title, row.caption, row.hashtags);
+  const locationName = inferredLocation
+    || explicitLocation.name
+    || explicitLocation.formatted_address
+    || explicitLocation.city
+    || explicitLocation.city_or_region
+    || profileLocation.name
+    || profileLocation.formatted_address
+    || profileLocation.city
+    || profileLocation.city_or_region
+    || '';
   
   // If the row contains joined interaction data (from user_liked/user_saved), use it.
   // Otherwise default to the explicit liked/saved flags if provided in the row.
@@ -1506,13 +2260,21 @@ function normalizePost(row) {
     createdAt: row.created_at || '',
     displayDate: formatPostDate(row.created_at),
     coachName: user.nickname || user.display_name || user.username || 'GuideNextdoor coach',
+    authorUserId: user.id || profile.user_id || '',
     authorUsername: user.username || '',
     avatarUrl: user.avatar_url || profile.cover_photo_url || '',
     hashtags: row.hashtags || [],
-    location: location.name || location.formatted_address || location.city || location.city_or_region || '',
+    location: locationName,
     liked,
     saved,
   };
+}
+
+function isPublicQualityPost(post) {
+  const text = String(post.caption || post.title || '').trim();
+  if (text.length < 12) return false;
+  if (/^[a-z]{1,5}\1{2,}$/i.test(text.replace(/\s/g, ''))) return false;
+  return true;
 }
 
 async function createInteraction(tableName, postId, session = null) {
@@ -1598,15 +2360,20 @@ async function updateTable(tableName, id, payload, session = null) {
   const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
   url.searchParams.set('id', `eq.${id}`);
 
-  const response = await fetch(url.toString(), {
-    method: 'PATCH',
-    headers: {
-      ...buildHeaders(activeSession),
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    },
-    body: JSON.stringify(payload),
-  });
+  let response;
+  try {
+    response = await fetchWithTimeout(url.toString(), {
+      method: 'PATCH',
+      headers: {
+        ...buildHeaders(activeSession),
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    return { data: null, error: error.message || String(error), tableName };
+  }
 
   if (!response.ok) {
     return { data: null, error: await response.text(), tableName };
@@ -1623,15 +2390,20 @@ async function insertTable(tableName, payload, session = null, prefer = 'return=
 
   const activeSession = session || getCurrentSession();
   const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
-  const response = await fetch(url.toString(), {
-    method: 'POST',
-    headers: {
-      ...buildHeaders(activeSession),
-      'Content-Type': 'application/json',
-      Prefer: prefer,
-    },
-    body: JSON.stringify(payload),
-  });
+  let response;
+  try {
+    response = await fetchWithTimeout(url.toString(), {
+      method: 'POST',
+      headers: {
+        ...buildHeaders(activeSession),
+        'Content-Type': 'application/json',
+        Prefer: prefer,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    return { data: null, error: error.message || String(error), tableName };
+  }
 
   if (!response.ok) {
     return { data: null, error: await response.text(), tableName };
@@ -1711,8 +2483,27 @@ function formatPostDate(value) {
   return `${day}-${month}-${year}`;
 }
 
+function formatLessonDate(value) {
+  if (!value) return '';
+  const [year, month, day] = String(value).slice(0, 10).split('-');
+  return year && month && day ? `${day}-${month}-${year}` : formatPostDate(value);
+}
+
 function formatDisplayDate(value) {
   return formatPostDate(value);
+}
+
+function toDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysToDateInput(value, offset) {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + offset);
+  return toDateInputValue(date);
 }
 
 function formatMessageTime(value) {

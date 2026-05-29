@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Award,
   Bookmark,
@@ -26,9 +26,12 @@ const tabs = ['posts', 'credentials', 'sessions', 'reviews'];
 
 export default function GuideProfileView() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const [state, setState] = useState({ loading: true, coach: null, error: null });
-  const [activeTab, setActiveTab] = useState('posts');
+  const requestedTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(tabs.includes(requestedTab) ? requestedTab : 'posts');
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [selectedCert, setSelectedCert] = useState(null);
   const [bookingServiceId, setBookingServiceId] = useState(null);
@@ -45,6 +48,29 @@ export default function GuideProfileView() {
       cancelled = true;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!tabs.includes(requestedTab)) return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      setActiveTab(requestedTab);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedTab]);
+
+  useEffect(() => {
+    if (state.loading || requestedTab !== 'sessions') return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) setShouldScrollToSessions(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedTab, state.loading]);
 
   useEffect(() => {
     if (!shouldScrollToSessions || activeTab !== 'sessions') return;
@@ -216,7 +242,7 @@ export default function GuideProfileView() {
                 <Stat label={t('profile.stats.years')} value={coach.stats.maxYears ? `${coach.stats.maxYears}+` : t('explore.newRating')} />
               </div>
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <Link to={`/${i18n.language}/messages`} className="flex items-center justify-center gap-2 rounded-xl bg-gnd-cream px-4 py-2.5 text-xs font-black text-gnd-dark">
+                <Link to={coach.username ? `/${i18n.language}/messages?user=${encodeURIComponent(coach.username)}` : `/${i18n.language}/messages`} className="flex items-center justify-center gap-2 rounded-xl bg-gnd-cream px-4 py-2.5 text-xs font-black text-gnd-dark">
                   <MessageSquare size={16} />
                   {t('profile.messageAction')}
                 </Link>
@@ -232,7 +258,7 @@ export default function GuideProfileView() {
         </div>
       </article>
 
-      <nav className="sticky top-0 z-30 mt-6 overflow-x-auto rounded-2xl bg-white/95 px-2 shadow-lg shadow-red-900/5 backdrop-blur">
+      <nav ref={sessionsSectionRef} className="sticky top-16 z-30 mt-6 scroll-mt-20 overflow-x-auto rounded-2xl bg-white/95 px-2 shadow-lg shadow-red-900/5 backdrop-blur">
         <div className="flex min-w-max">
           {tabs.map((tab) => (
             <button
@@ -248,7 +274,7 @@ export default function GuideProfileView() {
         </div>
       </nav>
 
-      <div ref={sessionsSectionRef} className="mt-6 scroll-mt-24">
+      <div className="mt-6">
        {activeTab === 'posts' && <PostsTab coach={coach} t={t} onOpenPost={setSelectedPostId} />}
        {activeTab === 'credentials' && <CredentialsTab coach={coach} t={t} onViewCert={setSelectedCert} />}
        {activeTab === 'sessions' && <SessionsTab coach={coach} t={t} onRequestSession={setBookingServiceId} />}
@@ -279,7 +305,7 @@ export default function GuideProfileView() {
             setSelectedPostId(null);
             showSessions();
           }}
-          messagePath={`/${i18n.language}/messages`}
+          messagePath={coach.username ? `/${i18n.language}/messages?user=${encodeURIComponent(coach.username)}` : `/${i18n.language}/messages`}
           t={t}
         />
       )}
@@ -289,9 +315,11 @@ export default function GuideProfileView() {
           coach={coach}
           service={bookingService}
           onClose={() => setBookingServiceId(null)}
-          onSubmitted={() => {
+          onSubmitted={(submission) => {
             setBookingServiceId(null);
             setNotice(t('profile.booking.success'));
+            const messageTarget = submission?.messageTarget || coach.username;
+            navigate(messageTarget ? `/${i18n.language}/messages?user=${encodeURIComponent(messageTarget)}` : `/${i18n.language}/messages`);
           }}
           t={t}
         />
@@ -570,9 +598,6 @@ function SessionsTab({ coach, t, onRequestSession }) {
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex items-center rounded-md bg-green-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-green-600 border border-green-100">
-                    {service.status === 'approved' ? t('explore.verified') : service.status}
-                  </span>
                   {service.qualification && (
                     <span className="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-600 border border-blue-100">
                       {t('profile.tabs.credentials')}
@@ -631,6 +656,7 @@ function SessionsTab({ coach, t, onRequestSession }) {
 }
 
 function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
+  const timeSectionRef = useRef(null);
   const skillLevels = service.pricing.length ? service.pricing.map((pricing) => pricing.skillLevel).filter(Boolean) : ['Beginner', 'Intermediate', 'Advanced'];
   const today = toDateInputValue(new Date());
   const initialDateOptions = buildBookingDateOptions(coach.availability, coach.bookedSlots, getMonthStart(new Date()), 1);
@@ -658,6 +684,12 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  const scrollToStartTimes = () => {
+    window.requestAnimationFrame(() => {
+      timeSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setStatus({ saving: true, error: '' });
@@ -667,28 +699,39 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
       return;
     }
 
-    const result = await submitBookingRequest({
-      serviceId: service.id,
-      lessonDate: form.lessonDate,
-      startTime: form.startTime,
-      durationHours: form.durationHours,
-      groupSize: form.groupSize,
-      skillLevel: form.skillLevel,
-      locationDetails: form.locationDetails,
-      totalPrice,
-      note: form.note,
-    });
+    let result;
+    try {
+      result = await submitBookingRequest({
+        serviceId: service.id,
+        lessonDate: form.lessonDate,
+        startTime: form.startTime,
+        durationHours: form.durationHours,
+        groupSize: form.groupSize,
+        skillLevel: form.skillLevel,
+        locationDetails: form.locationDetails,
+        totalPrice,
+        currency: service.currency,
+        serviceTitle: service.title,
+        coachName: coach.name,
+        note: form.note,
+      });
+    } catch (error) {
+      setStatus({ saving: false, error: error.message || t('profile.booking.submitFailed') });
+      return;
+    }
 
     if (result.error) {
       setStatus({
         saving: false,
-        error: result.error === 'auth_required' ? t('profile.booking.loginRequired') : t('profile.booking.submitFailed'),
+        error: result.error === 'auth_required'
+          ? t('profile.booking.loginRequired')
+          : `${t('profile.booking.submitFailed')} ${formatTechnicalError(result.error)}`,
       });
       return;
     }
 
     setStatus({ saving: false, error: '' });
-    onSubmitted();
+    onSubmitted(result.data);
   };
 
   return (
@@ -760,8 +803,9 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
                     setForm((current) => ({
                       ...current,
                       lessonDate: value,
-                      startTime: nextSlots[0] || current.startTime,
+                      startTime: nextSlots[0] || '',
                     }));
+                    if (nextSlots.length) scrollToStartTimes();
                   }}
                   className="rounded-xl border border-gnd-cream bg-white px-3 py-2 text-xs font-black outline-none focus:border-gnd-red"
                 />
@@ -784,8 +828,9 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
                     setForm((current) => ({
                       ...current,
                       lessonDate: option.value,
-                      startTime: nextSlots[0] || current.startTime,
+                      startTime: nextSlots[0] || '',
                     }));
+                    if (nextSlots.length) scrollToStartTimes();
                   }}
                   className={`min-h-20 rounded-2xl px-2 py-2 text-center transition ${form.lessonDate === option.value ? 'bg-gnd-red text-white shadow-lg shadow-red-900/15' : 'bg-gnd-cream text-gnd-dark'} ${!option.hasAvailability ? 'opacity-60' : ''} ${option.isPast ? 'cursor-not-allowed bg-gray-100 text-gray-400 opacity-100' : ''}`}
                 >
@@ -800,7 +845,7 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
             </div>
           </section>
 
-          <section className="mt-6 rounded-2xl bg-gnd-dark p-5 text-white">
+          <section ref={timeSectionRef} className="mt-6 scroll-mt-4 rounded-2xl bg-gnd-dark p-5 text-white">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-white/50">{t('profile.booking.time')}</p>
@@ -874,7 +919,15 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
                 {t('profile.booking.duration')}
                 <select
                   value={form.durationHours}
-                  onChange={(event) => updateField('durationHours', Number(event.target.value))}
+                  onChange={(event) => {
+                    const durationHours = Number(event.target.value);
+                    const nextSlots = getAvailableStartTimes(coach.availability, coach.bookedSlots, form.lessonDate, durationHours);
+                    setForm((current) => ({
+                      ...current,
+                      durationHours,
+                      startTime: nextSlots.includes(current.startTime) ? current.startTime : (nextSlots[0] || ''),
+                    }));
+                  }}
                   className="rounded-2xl border border-gnd-cream bg-white px-4 py-3 text-sm font-bold outline-none focus:border-gnd-red"
                 >
                   {[1, 2, 3, 4].map((hours) => <option key={hours} value={hours}>{formatDurationLabel(hours, t)}</option>)}
@@ -980,12 +1033,26 @@ function EmptyPanel({ title, body }) {
   );
 }
 
+function formatTechnicalError(error) {
+  const text = String(error || '').trim();
+  if (!text) return '';
+
+  try {
+    const parsed = JSON.parse(text);
+    return `(${parsed.message || parsed.error || text})`;
+  } catch {
+    return `(${text.slice(0, 180)})`;
+  }
+}
+
 function formatCurrency(value, currency) {
-  return new Intl.NumberFormat('en', {
+  const code = currency || 'USD';
+  const amount = new Intl.NumberFormat('en', {
     style: 'currency',
-    currency: currency || 'USD',
+    currency: code,
     maximumFractionDigits: 0,
   }).format(value);
+  return `${code} ${amount}`;
 }
 
 function getAvailabilityForDate(availability, lessonDate) {

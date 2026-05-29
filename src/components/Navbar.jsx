@@ -1,22 +1,46 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, UserRoundPlus, X } from 'lucide-react';
+import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, Search, UserRoundPlus, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { getCurrentSession, signOut } from '../lib/database';
+import { fetchCurrentInstructorProfile, getCurrentSession, signOut } from '../lib/database';
 
-const navItems = [
+const publicNavItems = [
   { key: 'home', path: '', icon: LayoutDashboard },
   { key: 'explore', path: 'explore', icon: Compass },
-  { key: 'destinations', path: 'destinations', icon: Globe2 },
-  { key: 'instructor', path: 'instructor', icon: LayoutDashboard },
+  { key: 'sessions', path: 'sessions', icon: Search },
 ];
+
+const instructorNavItem = { key: 'instructor', path: 'instructor', icon: LayoutDashboard };
 
 export default function Navbar() {
   const { t, i18n } = useTranslation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [hasInstructorProfile, setHasInstructorProfile] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const session = getCurrentSession();
+
+  useEffect(() => {
+    let cancelled = false;
+    const currentSession = getCurrentSession();
+
+    if (!currentSession) {
+      Promise.resolve().then(() => {
+        if (!cancelled) setHasInstructorProfile(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    fetchCurrentInstructorProfile().then((result) => {
+      if (!cancelled) setHasInstructorProfile(Boolean(result.data));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname]);
 
   // Prevent scrolling when mobile menu is open
   useEffect(() => {
@@ -39,9 +63,12 @@ export default function Navbar() {
 
   const handleSignOut = () => {
     signOut();
+    setHasInstructorProfile(false);
     setIsMobileMenuOpen(false);
     navigate(toPath('login'));
   };
+
+  const visibleNavItems = hasInstructorProfile ? [...publicNavItems, instructorNavItem] : publicNavItems;
 
   return (
     <>
@@ -53,7 +80,7 @@ export default function Navbar() {
           </Link>
 
           <div className="hidden items-center gap-1 md:flex">
-            {navItems.map(({ key, path, icon: Icon }) => (
+            {visibleNavItems.map(({ key, path, icon: Icon }) => (
               <Link
                 key={key}
                 to={toPath(path)}
@@ -158,7 +185,7 @@ export default function Navbar() {
               <div className="text-[10px] font-bold uppercase tracking-widest text-gnd-gray/60 px-2 mb-3">
                 {t('nav.navigation')}
               </div>
-              {navItems.map(({ key, path, icon: Icon }) => (
+              {visibleNavItems.map(({ key, path, icon: Icon }) => (
                 <Link
                   key={key}
                   to={toPath(path)}

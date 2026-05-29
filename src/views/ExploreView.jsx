@@ -160,6 +160,7 @@ export default function ExploreView() {
           onLike={() => handleLike(selectedPost)}
           onSave={() => handleSave(selectedPost)}
           profilePath={`/${i18n.language}/guide/${selectedPost.authorUsername || selectedPost.instructorId}`}
+          messagePath={selectedPost.authorUsername ? `/${i18n.language}/messages?user=${encodeURIComponent(selectedPost.authorUsername)}` : `/${i18n.language}/messages`}
           t={t}
         />
       )}
@@ -248,7 +249,7 @@ function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
   );
 }
 
-function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
+function PostDetailModal({ post, onClose, onLike, onSave, profilePath, messagePath, t }) {
   const imageUrls = post.imageUrls?.length > 0 ? post.imageUrls : [post.imageUrl || fallbackImages[0]];
   const [imgIndex, setImgIndex] = useState(0);
   const [comments, setComments] = useState([]);
@@ -336,7 +337,7 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
           {/* Header */}
           <header className="flex items-center justify-between border-b border-gnd-cream p-2 md:p-4">
             <Link to={profilePath} className="flex min-w-0 items-center gap-1.5 md:gap-3" onClick={onClose}>
-              <img src={post.avatarUrl || imageUrls[0]} alt="" className="h-6 w-6 md:h-9 md:h-9 rounded-full border border-gnd-cream object-cover" />
+              <img src={post.avatarUrl || imageUrls[0]} alt="" className="aspect-square h-6 w-6 rounded-full border border-gnd-cream object-cover md:h-9 md:w-9" />
               <div className="min-w-0">
                 <h2 className="truncate text-[10px] md:text-sm font-black text-gnd-dark">{post.coachName}</h2>
                 <p className="flex items-center gap-1 truncate text-[8px] md:text-[10px] font-black uppercase tracking-wider text-gnd-gray">
@@ -358,7 +359,7 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3 md:px-4 md:py-5">
             <div className="flex gap-2 md:gap-3">
               <Link to={profilePath} onClick={onClose} className="shrink-0 hidden sm:block">
-                <img src={post.avatarUrl || imageUrls[0]} alt="" className="h-7 w-7 md:h-9 md:h-9 rounded-full object-cover" />
+                <img src={post.avatarUrl || imageUrls[0]} alt="" className="aspect-square h-7 w-7 rounded-full object-cover md:h-9 md:w-9" />
               </Link>
               <div className="flex-1 space-y-1 text-[11px] md:text-sm leading-relaxed">
                 <p className="text-gnd-dark">
@@ -391,7 +392,7 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
               ) : comments.length > 0 ? (
                 comments.map((comment) => (
                   <div key={comment.id} className="flex gap-2 md:gap-3">
-                    <img src={comment.avatarUrl || fallbackImages[0]} alt="" className="h-6 w-6 md:h-8 md:h-8 rounded-full object-cover shrink-0" />
+                    <img src={comment.avatarUrl || fallbackImages[0]} alt="" className="aspect-square h-6 w-6 shrink-0 rounded-full object-cover md:h-8 md:w-8" />
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] md:text-sm text-gnd-dark leading-relaxed">
                         <span className="font-black mr-2">{comment.userName}</span>
@@ -416,6 +417,7 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
                 <button type="button" className={`transition hover:scale-110 active:scale-90 ${post.liked ? 'text-gnd-red' : 'text-gnd-dark'}`} onClick={onLike}>
                   <Heart size={20} className={`${post.liked ? 'fill-current' : ''} md:w-[26px] md:h-[26px]`} />
                 </button>
+                <span className="text-[11px] font-black text-gnd-dark md:text-sm">{post.likes}</span>
                 <button 
                   type="button" 
                   className="text-gnd-dark transition hover:scale-110"
@@ -427,10 +429,6 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
               <button type="button" className={`transition hover:scale-110 active:scale-90 ${post.saved ? 'text-gnd-red' : 'text-gnd-dark'}`} onClick={onSave}>
                 <Bookmark size={20} className={`${post.saved ? 'fill-current' : ''} md:w-[26px] md:h-[26px]`} />
               </button>
-            </div>
-            
-            <div className="mt-1.5 md:mt-3">
-              <p className="text-[11px] md:text-sm font-black text-gnd-dark">{post.likes} {t('home.metrics.likes') || 'likes'}</p>
             </div>
           </section>
 
@@ -458,13 +456,21 @@ function PostDetailModal({ post, onClose, onLike, onSave, profilePath, t }) {
           {/* Footer Actions */}
           <footer className="flex flex-col gap-1.5 border-t border-gnd-cream bg-gnd-cream/30 p-2 md:p-4">
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" className="flex items-center justify-center gap-1.5 md:gap-2 rounded-lg bg-gnd-red px-2 py-2 md:px-4 md:py-3 text-[9px] md:text-xs font-black text-white shadow-lg shadow-red-600/20 transition hover:bg-red-600 active:scale-[0.98]">
-                <MessageSquare size={12} className="md:w-[16px] md:h-[16px]" />
+              <Link
+                to={messagePath}
+                onClick={onClose}
+                className="flex items-center justify-center gap-1.5 rounded-lg bg-gnd-red px-2 py-2 text-[9px] font-black !text-white shadow-lg shadow-red-600/20 transition hover:bg-red-600 active:scale-[0.98] md:gap-2 md:px-4 md:py-3 md:text-xs"
+              >
+                <MessageSquare size={12} className="!text-white md:h-[16px] md:w-[16px]" />
                 {t('explore.messageCta')}
-              </button>
-              <button type="button" className="rounded-lg bg-gnd-dark px-2 py-2 md:px-4 md:py-3 text-[9px] md:text-xs font-black text-white transition hover:bg-black active:scale-[0.98]">
+              </Link>
+              <Link
+                to={`${profilePath}?tab=sessions`}
+                onClick={onClose}
+                className="flex items-center justify-center rounded-lg bg-gnd-dark px-2 py-2 text-center text-[9px] font-black !text-white transition hover:bg-black active:scale-[0.98] md:px-4 md:py-3 md:text-xs"
+              >
                 {t('explore.viewSessionsCta')}
-              </button>
+              </Link>
             </div>
           </footer>
         </div>
