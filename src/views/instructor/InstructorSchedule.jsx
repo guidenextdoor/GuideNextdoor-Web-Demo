@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, CalendarCheck, CheckCircle2, Clock, Plus, Trash2, X } from 'lucide-react';
-import {
-  createInstructorAvailabilityWindow,
-  deleteInstructorAvailabilityWindow,
+import { 
+  createInstructorAvailabilityWindow, 
+  deleteInstructorAvailabilityWindow, 
   fetchInstructorSchedule,
+  updateInstructorBreakStatus
 } from '../../lib/database';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
 import BookingDetailModal from '../../components/BookingDetailModal';
@@ -94,6 +95,38 @@ export default function InstructorSchedule() {
     loadSchedule();
   };
 
+  const handleToggleBreak = async () => {
+    const coachId = state.data?.coach?.id;
+    if (!coachId) {
+      console.warn('handleToggleBreak: No coach ID found');
+      return;
+    }
+    
+    const currentStatus = state.data.coach.isOnBreak;
+    console.log(`handleToggleBreak: Toggling break status from ${currentStatus} for coach ${coachId}`);
+    setStatus({ saving: true, error: '', notice: '' });
+    
+    const result = await updateInstructorBreakStatus(coachId, !currentStatus);
+    
+    if (result.error) {
+      setStatus({ 
+        saving: false, 
+        error: `${t('workspace.schedule.saveFailed')} (${result.error})`, 
+        notice: '' 
+      });
+      return;
+    }
+    
+    setStatus({ 
+      saving: false, 
+      error: '', 
+      notice: !currentStatus ? t('workspace.schedule.breakEnabled') : t('workspace.schedule.breakDisabled') 
+    });
+    
+    // Refresh schedule to reflect change
+    loadSchedule();
+  };
+
   const monthCells = state.data
     ? buildScheduleMonthCells(state.data.availability, state.data.bookedSlots, visibleMonth)
     : [];
@@ -117,7 +150,27 @@ export default function InstructorSchedule() {
           <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
             <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-xl font-black text-gnd-dark sm:text-2xl">{formatMonthHeading(visibleMonth)}</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-black text-gnd-dark sm:text-2xl">{formatMonthHeading(visibleMonth)}</h2>
+                  {state.data?.coach && (
+                    <button
+                      type="button"
+                      onClick={handleToggleBreak}
+                      disabled={status.saving}
+                      className={`group relative flex items-center gap-2 rounded-full py-1 pl-1 pr-3 text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95 focus:outline-none focus:ring-2 focus:ring-gnd-red/20 ${
+                        state.data.coach.isOnBreak 
+                          ? 'bg-gnd-red text-white shadow-lg shadow-red-600/20' 
+                          : 'bg-gnd-cream text-gnd-gray hover:bg-gnd-cream/80'
+                      }`}
+                      title={state.data.coach.isOnBreak ? t('workspace.schedule.breakDisabled') : t('workspace.schedule.breakEnabled')}
+                    >
+                      <div className={`flex h-4 w-7 items-center rounded-full p-1 transition-colors ${state.data.coach.isOnBreak ? 'bg-white/20' : 'bg-gnd-gray/20'}`}>
+                        <div className={`h-2 w-2 rounded-full transition-transform ${state.data.coach.isOnBreak ? 'translate-x-3 bg-white animate-pulse' : 'translate-x-0 bg-gnd-gray'}`} />
+                      </div>
+                      {state.data.coach.isOnBreak ? t('workspace.schedule.onBreak') : t('workspace.schedule.quickBreak')}
+                    </button>
+                  )}
+                </div>
                 <p className="mt-1 text-sm font-bold text-gnd-gray">{t('workspace.schedule.calendarHint')}</p>
                 <ScheduleLegend />
               </div>

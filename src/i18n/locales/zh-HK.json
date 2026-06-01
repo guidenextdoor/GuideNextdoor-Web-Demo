@@ -129,6 +129,14 @@
   "profile": {
     "sessions": {
       "title": "預約詳情"
+    },
+    "workspace": {
+      "schedule": {
+        "quickBreak": "休息模式",
+        "onBreak": "休息中",
+        "breakEnabled": "已開啟休息模式。您的預約時段已從搜尋結果中隱藏。",
+        "breakDisabled": "已關閉休息模式。您的預約時段現在對外可見。"
+      }
     }
   }
 }

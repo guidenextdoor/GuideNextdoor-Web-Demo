@@ -129,6 +129,14 @@
   "profile": {
     "sessions": {
       "title": "预约详情"
+    },
+    "workspace": {
+      "schedule": {
+        "quickBreak": "休息模式",
+        "onBreak": "休息中",
+        "breakEnabled": "已开启休息模式。您的预约时段已从搜索结果中隐藏。",
+        "breakDisabled": "已关闭休息模式。您的预约时段现在对外可见。"
+      }
     }
   }
 }

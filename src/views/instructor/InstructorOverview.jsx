@@ -52,17 +52,17 @@ export default function InstructorOverview() {
       title={t('workspace.overview.welcome', { name: coach?.name?.split(' ')[0] || 'Coach' })}
       subtitle={t('workspace.overview.subtitle')}
     >
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatCard label={t('profile.stats.reviews')} value={stats.reviewCount || 0} icon={Star} subValue={stats.averageRating ? stats.averageRating.toFixed(1) : '0.0'} color="text-yellow-500" />
         <StatCard label={t('profile.stats.sessions')} value={stats.completedSessionCount || 0} icon={Calendar} color="text-blue-500" />
         
         <button 
           onClick={() => setShowEarningModal(true)}
-          className="group relative overflow-hidden rounded-lg border border-gnd-cream bg-white p-6 shadow-sm transition-all hover:shadow-md hover:border-gnd-red/20 text-center"
+          className="col-span-2 group relative overflow-hidden rounded-lg border border-gnd-cream bg-white p-4 sm:p-6 shadow-sm transition-all hover:shadow-md hover:border-gnd-red/20 text-center sm:col-span-1"
         >
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray mb-3">{t('workspace.overview.earnings')}</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray mb-2 sm:mb-3">{t('workspace.overview.earnings')}</p>
           <div className="flex flex-col items-center gap-1">
-            <span className="text-3xl font-black text-gnd-dark group-hover:text-gnd-red transition-colors">
+            <span className="text-2xl sm:text-3xl font-black text-gnd-dark group-hover:text-gnd-red transition-colors">
               {formatEarnings(stats.earningsThisMonth)}
             </span>
             <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-gnd-cream/30 text-green-600">
@@ -257,10 +257,10 @@ function EarningDetailModal({ bookings, totalEarnings, onClose, onBookingClick, 
 
 function StatCard({ label, value, subValue, color }) {
   return (
-    <div className="rounded-lg border border-gnd-cream bg-white p-6 shadow-sm transition-shadow hover:shadow-md text-center">
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray mb-3">{label}</p>
+    <div className="rounded-lg border border-gnd-cream bg-white p-4 sm:p-6 shadow-sm transition-shadow hover:shadow-md text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray mb-2 sm:mb-3">{label}</p>
       <div className="flex flex-col items-center gap-1">
-        <span className="text-3xl font-black text-gnd-dark">{value}</span>
+        <span className="text-2xl sm:text-3xl font-black text-gnd-dark">{value}</span>
         {subValue && (
           <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-gnd-cream/30 ${color}`}>
             {subValue}

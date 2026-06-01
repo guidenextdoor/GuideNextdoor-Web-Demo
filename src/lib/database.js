@@ -267,8 +267,9 @@ export async function fetchServices() {
 export async function fetchSessionSearchData() {
   const [servicesResult, locationsResult, activitiesResult] = await Promise.all([
     queryTable('instructor_services', {
-      select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*),instructor_profiles(id,user_id,users(id,display_name,nickname,avatar_url,username,email),locations(*))',
+      select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*),instructor_profiles!inner(id,user_id,is_on_break,users(id,display_name,nickname,avatar_url,username,email),locations(*))',
       is_active: 'eq.true',
+      'instructor_profiles.is_on_break': 'eq.false',
       service_approval_status: 'in.(approved,Approved)',
       order: 'attainment_year.desc',
       limit: '240',
@@ -876,10 +877,10 @@ export async function fetchInstructorProfile(id) {
     data: {
       ...coachWithLangs,
       posts,
-      services: servicesWithLocations,
+      services: coachResult.data.isOnBreak ? [] : servicesWithLocations,
       reviews,
-      availability,
-      availabilityOverrides,
+      availability: coachResult.data.isOnBreak ? [] : availability,
+      availabilityOverrides: coachResult.data.isOnBreak ? [] : availabilityOverrides,
       bookedSlots,
       qualifications,
       stats: buildInstructorStats(coachWithLangs, servicesWithLocations, posts, reviews),
@@ -1294,6 +1295,7 @@ function normalizeCoach(row) {
     timezone: row.timezone || metadata.timezone || '',
     verified: row.id_verification_status === 'Verified' || Boolean(row.verified || row.is_verified || metadata.verified),
     avatarUrl: user.avatar_url || row.avatar_url || row.image_url || metadata.avatar_url || row.cover_photo_url || '',
+    isOnBreak: Boolean(row.is_on_break),
     coverPhotoUrl: row.cover_photo_url || user.avatar_url || row.avatar_url || row.image_url || metadata.avatar_url || '',
     tags: row.tags || metadata.tags || [],
   };
@@ -2507,9 +2509,14 @@ function normalizeCoachApplicationPayload(payload) {
     certificate_url: payload.certificateUrl || null,
     proof_notes: payload.proofNotes || null,
     service_title: payload.serviceTitle,
+    service_location_ids: payload.locationIds || [],
+    manual_location: payload.manualLocation || null,
     service_location: payload.serviceLocation,
     meeting_point: payload.meetingPoint || null,
     service_description: payload.serviceDescription || null,
+    min_duration_hours: payload.minDurationHours ? Number(payload.minDurationHours) : null,
+    pricing: payload.pricing || [],
+    pricing_later: Boolean(payload.pricingLater),
     skill_levels: payload.skillLevels || [],
     duration: payload.duration || null,
     max_group_size: payload.maxGroupSize ? Number(payload.maxGroupSize) : null,
@@ -2765,4 +2772,25 @@ export async function updateInstructorService(serviceId, payload) {
   }
 
   return { error: null };
+}
+
+export async function updateInstructorBreakStatus(instructorId, isOnBreak) {
+  const session = getCurrentSession();
+  if (!session) {
+    console.error('updateInstructorBreakStatus: No active session');
+    return { error: 'auth_required' };
+  }
+
+  console.log(`updateInstructorBreakStatus: Updating instructor ${instructorId} to isOnBreak=${isOnBreak}`);
+  const result = await updateTable('instructor_profiles', instructorId, {
+    is_on_break: isOnBreak,
+  }, session);
+
+  if (result.error) {
+    console.error('updateInstructorBreakStatus: Update failed', result.error);
+  } else {
+    console.log('updateInstructorBreakStatus: Update successful', result.data);
+  }
+
+  return result;
 }

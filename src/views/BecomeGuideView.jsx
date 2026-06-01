@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Award, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, IdCard, Loader2, MapPin, Search, Send, X } from 'lucide-react';
+import { Award, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, IdCard, Loader2, MapPin, Plus, Search, Send, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { fetchLanguages, fetchRefActivities, fetchRefQualifications, submitGuideApplication, uploadApplicationPhoto } from '../lib/database';
+import { fetchLanguages, fetchLocations, fetchRefActivities, fetchRefQualifications, submitGuideApplication, uploadApplicationPhoto } from '../lib/database';
 import { compressImage } from '../lib/image-utils';
 
-const skillLevelOptions = ['Beginner', 'Intermediate', 'Advanced', 'All levels'];
+const defaultPricingTier = { skillLevel: 'All Levels', currency: 'HKD', price1: '', extraPersonFee: '' };
 
 const initialForm = {
   legalName: '',
@@ -23,14 +23,19 @@ const initialForm = {
   certificateUrl: '',
   proofNotes: '',
   serviceTitle: '',
+  locationIds: [],
+  manualLocation: '',
   serviceLocation: '',
   meetingPoint: '',
   serviceDescription: '',
+  minDurationHours: 1,
   skillLevels: [],
   duration: '',
   maxGroupSize: '',
   price: '',
   currency: 'HKD',
+  pricing: [defaultPricingTier],
+  pricingLater: false,
   availability: '',
   consentReview: false,
 };
@@ -52,10 +57,13 @@ export default function BecomeGuideView() {
   const [allLanguages, setAllLanguages] = useState([]);
   const [activities, setActivities] = useState([]);
   const [qualifications, setQualifications] = useState([]);
+  const [allLocations, setAllLocations] = useState([]);
   const [languageSearch, setLanguageSearch] = useState('');
   const [qualificationSearch, setQualificationSearch] = useState('');
+  const [locationSearch, setLocationSearch] = useState('');
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
   const [showQualificationDropdown, setShowQualificationDropdown] = useState(false);
+  const [showLocationResults, setShowLocationResults] = useState(false);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState('');
   const [certificatePreviewUrl, setCertificatePreviewUrl] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -69,21 +77,28 @@ export default function BecomeGuideView() {
   const isFinalStep = stepIndex === steps.length - 1;
   const summaryItems = useMemo(() => buildSummaryItems(form, t), [form, t]);
   const selectedLanguages = allLanguages.filter((language) => form.languageIds.includes(language.id));
+  const selectedLocationObjects = allLocations.filter((location) => form.locationIds.includes(location.id));
   const filteredQualifications = qualifications.filter((qualification) => {
     const matchesActivity = !form.activityId || qualification.activity_id === form.activityId;
     const label = qualification.qualification_name || qualification.qualification || '';
     return matchesActivity && label.toLowerCase().includes(qualificationSearch.toLowerCase());
+  });
+  const filteredLocations = allLocations.filter((location) => {
+    const haystack = `${location.name || ''} ${location.country || ''}`.toLowerCase();
+    return haystack.includes(locationSearch.toLowerCase());
   });
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
       fetchLanguages(),
+      fetchLocations(),
       fetchRefActivities(),
       fetchRefQualifications(),
-    ]).then(([languageResult, activityResult, qualificationResult]) => {
+    ]).then(([languageResult, locationResult, activityResult, qualificationResult]) => {
       if (cancelled) return;
       setAllLanguages(languageResult.data || []);
+      setAllLocations(locationResult.data || []);
       setActivities(activityResult.data || []);
       setQualifications(qualificationResult.data || []);
     });
@@ -107,6 +122,11 @@ export default function BecomeGuideView() {
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
+    setValidation('');
+  };
+
+  const updateManualLocation = (value) => {
+    setForm((current) => ({ ...current, manualLocation: value }));
     setValidation('');
   };
 
@@ -139,16 +159,6 @@ export default function BecomeGuideView() {
     setValidation('');
   };
 
-  const toggleSkillLevel = (level) => {
-    setForm((current) => ({
-      ...current,
-      skillLevels: current.skillLevels.includes(level)
-        ? current.skillLevels.filter((item) => item !== level)
-        : [...current.skillLevels, level],
-    }));
-    setValidation('');
-  };
-
   const toggleLanguage = (id) => {
     setForm((current) => ({
       ...current,
@@ -156,6 +166,61 @@ export default function BecomeGuideView() {
         ? current.languageIds.filter((languageId) => languageId !== id)
         : [...current.languageIds, id],
     }));
+    setValidation('');
+  };
+
+  const toggleLocation = (locationId) => {
+    const location = allLocations.find((item) => item.id === locationId);
+    setForm((current) => {
+      const nextLocationIds = current.locationIds.includes(locationId)
+        ? current.locationIds.filter((id) => id !== locationId)
+        : [...current.locationIds, locationId];
+      const nextLocationNames = allLocations
+        .filter((item) => nextLocationIds.includes(item.id))
+        .map((item) => item.name)
+        .filter(Boolean);
+      if (location && !nextLocationNames.includes(location.name) && nextLocationIds.includes(locationId)) {
+        nextLocationNames.push(location.name);
+      }
+      return {
+        ...current,
+        locationIds: nextLocationIds,
+        serviceLocation: nextLocationNames.join(', '),
+      };
+    });
+    setLocationSearch('');
+    setShowLocationResults(false);
+    setValidation('');
+  };
+
+  const addPricingTier = () => {
+    setForm((current) => ({
+      ...current,
+      pricing: [...current.pricing, { skillLevel: 'New Level', currency: current.currency || 'HKD', price1: '', extraPersonFee: '' }],
+    }));
+    setValidation('');
+  };
+
+  const removePricingTier = (index) => {
+    setForm((current) => normalizePricingFields({
+      ...current,
+      pricing: current.pricing.filter((_, itemIndex) => itemIndex !== index),
+    }));
+    setValidation('');
+  };
+
+  const updatePricingTier = (index, field, value) => {
+    setForm((current) => normalizePricingFields({
+      ...current,
+      pricing: current.pricing.map((tier, itemIndex) => (
+        itemIndex === index ? { ...tier, [field]: value } : tier
+      )),
+    }));
+    setValidation('');
+  };
+
+  const togglePricingLater = (checked) => {
+    setForm((current) => normalizePricingFields({ ...current, pricingLater: checked }));
     setValidation('');
   };
 
@@ -233,8 +298,9 @@ export default function BecomeGuideView() {
     setStatus('submitting');
     setError('');
     const languageLabels = selectedLanguages.map((language) => t(`languages.${language.code}`) || language.native_name || language.name);
+    const servicePayload = normalizeServiceApplication(form, allLocations);
     const result = await submitGuideApplication({
-      ...form,
+      ...servicePayload,
       languageLabels,
       source: 'platform_homepage',
       submitted_at: new Date().toISOString(),
@@ -251,6 +317,7 @@ export default function BecomeGuideView() {
     setPhotoPreviewUrl('');
     setCertificatePreviewUrl('');
     setQualificationSearch('');
+    setLocationSearch('');
     setStepIndex(0);
   };
 
@@ -264,6 +331,10 @@ export default function BecomeGuideView() {
         <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-gnd-red">{t('becomeGuide.eyebrow')}</p>
         <h1 className="text-4xl font-black tracking-tight md:text-6xl">{t('becomeGuide.title')}</h1>
         <p className="mt-5 max-w-xl text-base leading-7 text-gnd-gray">{t('becomeGuide.subtitle')}</p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <span className="rounded-lg bg-white px-3 py-2 text-xs font-black uppercase tracking-widest text-gnd-red shadow-sm shadow-red-900/5">{t('becomeGuide.timeEstimate')}</span>
+          <span className="rounded-lg bg-white px-3 py-2 text-xs font-black uppercase tracking-widest text-gnd-gray shadow-sm shadow-red-900/5">{t('becomeGuide.reviewExpectation')}</span>
+        </div>
 
         <div className="mt-8 grid gap-2 md:grid-cols-4">
           {steps.map((step, index) => (
@@ -343,6 +414,9 @@ export default function BecomeGuideView() {
               onSelect={selectQualification}
               t={t}
             />
+            <p className="rounded-lg bg-gnd-cream/60 px-4 py-3 text-xs font-bold leading-5 text-gnd-gray md:col-span-2">
+              {t('becomeGuide.form.credentialHelp')}
+            </p>
             {form.qualificationId === 'other' && (
               <Field
                 label={t('becomeGuide.form.otherCredential')}
@@ -360,59 +434,61 @@ export default function BecomeGuideView() {
               onChange={handleCertificatePhotoChange}
               t={t}
             />
+            <p className="rounded-lg bg-gnd-cream/60 px-4 py-3 text-xs font-bold leading-5 text-gnd-gray md:col-span-2">
+              {t('becomeGuide.form.certificatePrivacy')}
+            </p>
             <TextArea label={t('becomeGuide.form.proofNotes')} value={form.proofNotes} onChange={(value) => updateField('proofNotes', value)} className="md:col-span-2" />
           </div>
         )}
 
         {currentStep.key === 'service' && (
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label={t('becomeGuide.form.serviceTitle')} value={form.serviceTitle} onChange={(value) => updateField('serviceTitle', value)} placeholder={t('becomeGuide.form.serviceTitlePlaceholder')} required />
-            <Field label={t('becomeGuide.form.serviceLocation')} value={form.serviceLocation} onChange={(value) => updateField('serviceLocation', value)} placeholder={t('becomeGuide.form.serviceLocationPlaceholder')} required />
-            <Field label={t('becomeGuide.form.meetingPoint')} value={form.meetingPoint} onChange={(value) => updateField('meetingPoint', value)} />
-            <Field label={t('becomeGuide.form.duration')} value={form.duration} onChange={(value) => updateField('duration', value)} placeholder={t('becomeGuide.form.durationPlaceholder')} />
-            <Field label={t('becomeGuide.form.maxGroupSize')} type="number" value={form.maxGroupSize} onChange={(value) => updateField('maxGroupSize', value)} />
-            <div className="grid gap-2">
-              <span className="text-sm font-black">{t('becomeGuide.form.price')}</span>
-              <div className="grid grid-cols-[92px_1fr] gap-2">
-                <select
-                  value={form.currency}
-                  onChange={(event) => updateField('currency', event.target.value)}
-                  className="h-12 rounded-lg bg-gnd-cream px-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-gnd-red/20"
-                >
-                  {['HKD', 'USD', 'JPY', 'IDR'].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-                </select>
-                <input
-                  value={form.price}
-                  onChange={(event) => updateField('price', event.target.value)}
-                  placeholder={t('becomeGuide.form.pricePlaceholder')}
-                  className="h-12 rounded-lg bg-gnd-cream px-4 text-sm font-semibold outline-none focus:ring-2 focus:ring-gnd-red/20"
-                />
-              </div>
-            </div>
-            <fieldset className="grid gap-2 md:col-span-2">
-              <legend className="text-sm font-black">{t('becomeGuide.form.skillLevels')}</legend>
-              <div className="flex flex-wrap gap-2">
-                {skillLevelOptions.map((level) => (
-                  <label key={level} className={`cursor-pointer rounded-lg border px-3 py-2 text-xs font-black ${form.skillLevels.includes(level) ? 'border-gnd-red bg-gnd-red text-white' : 'border-gnd-cream bg-white text-gnd-dark'}`}>
-                    <input type="checkbox" className="sr-only" checked={form.skillLevels.includes(level)} onChange={() => toggleSkillLevel(level)} />
-                    {level}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <TextArea label={t('becomeGuide.form.serviceDescription')} value={form.serviceDescription} onChange={(value) => updateField('serviceDescription', value)} className="md:col-span-2" />
-            <TextArea label={t('becomeGuide.form.availability')} value={form.availability} onChange={(value) => updateField('availability', value)} className="md:col-span-2" />
+          <div className="grid gap-8">
+            <section className="grid gap-4 md:grid-cols-2">
+              <h3 className="border-b border-gnd-cream pb-2 text-lg font-black text-gnd-dark md:col-span-2">{t('becomeGuide.form.basicDetails')}</h3>
+              <Field label={t('becomeGuide.form.serviceTitle')} value={form.serviceTitle} onChange={(value) => updateField('serviceTitle', value)} placeholder={t('becomeGuide.form.serviceTitlePlaceholder')} required />
+              <Field label={t('becomeGuide.form.minDurationHours')} type="number" value={form.minDurationHours} onChange={(value) => updateField('minDurationHours', value)} placeholder="1" />
+              <TextArea label={t('becomeGuide.form.serviceDescription')} value={form.serviceDescription} onChange={(value) => updateField('serviceDescription', value)} className="md:col-span-2" />
+            </section>
+
+            <CoverageAreas
+              selectedLocations={selectedLocationObjects}
+              locationSearch={locationSearch}
+              setLocationSearch={setLocationSearch}
+              showLocationResults={showLocationResults}
+              setShowLocationResults={setShowLocationResults}
+              filteredLocations={filteredLocations}
+              selectedIds={form.locationIds}
+              onToggle={toggleLocation}
+              manualLocation={form.manualLocation}
+              onManualLocationChange={updateManualLocation}
+              t={t}
+            />
+
+            <PricingTiers
+              pricing={form.pricing}
+              pricingLater={form.pricingLater}
+              onPricingLaterChange={togglePricingLater}
+              onAdd={addPricingTier}
+              onRemove={removePricingTier}
+              onChange={updatePricingTier}
+              t={t}
+            />
           </div>
         )}
 
         {currentStep.key === 'review' && (
           <div className="grid gap-5">
-            <div className="grid gap-3 rounded-lg bg-gnd-cream p-4">
-              {summaryItems.map((item) => (
-                <div key={item.label} className="grid gap-1 sm:grid-cols-[180px_1fr]">
-                  <span className="text-xs font-black uppercase tracking-widest text-gnd-gray">{item.label}</span>
-                  <span className="text-sm font-bold text-gnd-dark">{item.value || t('becomeGuide.review.notProvided')}</span>
-                </div>
+            <div className="grid gap-4">
+              {summaryItems.map((section) => (
+                <section key={section.title} className="grid gap-3 rounded-lg bg-gnd-cream p-4">
+                  <h3 className="text-sm font-black text-gnd-dark">{section.title}</h3>
+                  {section.items.map((item) => (
+                    <div key={item.label} className="grid gap-1 sm:grid-cols-[180px_1fr]">
+                      <span className="text-xs font-black uppercase tracking-widest text-gnd-gray">{item.label}</span>
+                      <span className="text-sm font-bold text-gnd-dark">{item.value || t('becomeGuide.review.notProvided')}</span>
+                    </div>
+                  ))}
+                </section>
               ))}
             </div>
             <label className="flex gap-3 rounded-lg border border-gnd-cream p-4 text-sm font-bold leading-6 text-gnd-gray">
@@ -637,6 +713,169 @@ function ActivitySelect({ activities, value, onChange, t }) {
   );
 }
 
+function CoverageAreas({
+  selectedLocations,
+  locationSearch,
+  setLocationSearch,
+  showLocationResults,
+  setShowLocationResults,
+  filteredLocations,
+  selectedIds,
+  onToggle,
+  manualLocation,
+  onManualLocationChange,
+  t,
+}) {
+  return (
+    <section className="grid gap-4">
+      <h3 className="border-b border-gnd-cream pb-2 text-lg font-black text-gnd-dark">{t('becomeGuide.form.coverageAreas')}</h3>
+      <div className="flex flex-wrap gap-2">
+        {selectedLocations.map((location) => (
+          <div key={location.id} className="flex items-center gap-1.5 rounded-lg border border-gnd-red bg-gnd-red/5 px-3 py-1.5">
+            <MapPin size={12} className="text-gnd-red" />
+            <span className="text-xs font-bold text-gnd-dark">{location.name}</span>
+            <button type="button" onClick={() => onToggle(location.id)} className="ml-1 text-gnd-red hover:text-red-700">
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="relative">
+        <input
+          type="text"
+          value={locationSearch}
+          onChange={(event) => {
+            setLocationSearch(event.target.value);
+            setShowLocationResults(true);
+          }}
+          onFocus={() => setShowLocationResults(true)}
+          placeholder={t('becomeGuide.form.locationSearch')}
+          className="w-full rounded-lg border border-gnd-cream bg-gnd-cream/10 px-3 py-3 text-sm font-bold text-gnd-dark outline-none focus:ring-1 focus:ring-gnd-red"
+        />
+        {showLocationResults && locationSearch.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gnd-cream bg-white shadow-xl">
+            {filteredLocations.length > 0 ? filteredLocations.map((location) => (
+              <button
+                type="button"
+                key={location.id}
+                onClick={() => onToggle(location.id)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gnd-cream/30"
+              >
+                <MapPin size={14} className="text-gnd-gray" />
+                <span>
+                  <span className="block text-sm font-black text-gnd-dark">{location.name}</span>
+                  {location.country && <span className="block text-[10px] font-bold uppercase text-gnd-gray">{location.country}</span>}
+                </span>
+                {selectedIds.includes(location.id) && <span className="ml-auto text-xs font-bold text-gnd-red">{t('becomeGuide.form.locationAdded')}</span>}
+              </button>
+            )) : (
+              <div className="px-4 py-6 text-center text-xs font-bold text-gnd-gray">{t('becomeGuide.form.noLocations', { query: locationSearch })}</div>
+            )}
+          </div>
+        )}
+      </div>
+      {!selectedIds.length && !manualLocation.trim() && <p className="text-sm font-bold text-gnd-red">{t('becomeGuide.validation.coverageArea')}</p>}
+      <label className="grid gap-2">
+        <span className="text-sm font-black">{t('becomeGuide.form.manualLocation')}</span>
+        <input
+          value={manualLocation}
+          onChange={(event) => onManualLocationChange(event.target.value)}
+          placeholder={t('becomeGuide.form.manualLocationPlaceholder')}
+          className="h-12 rounded-lg bg-gnd-cream px-4 text-sm font-semibold outline-none focus:ring-2 focus:ring-gnd-red/20"
+        />
+      </label>
+    </section>
+  );
+}
+
+function PricingTiers({ pricing, pricingLater, onPricingLaterChange, onAdd, onRemove, onChange, t }) {
+  return (
+    <section className="grid gap-4">
+      <div className="flex items-center justify-between border-b border-gnd-cream pb-2">
+        <h3 className="text-lg font-black text-gnd-dark">{t('becomeGuide.form.pricingTiers')}</h3>
+        <button type="button" onClick={onAdd} className="flex items-center gap-1 text-sm font-bold text-gnd-red hover:text-red-700">
+          <Plus size={16} />
+          {t('becomeGuide.form.addTier')}
+        </button>
+      </div>
+      <label className="flex gap-3 rounded-lg border border-gnd-cream bg-white p-4 text-sm font-bold leading-6 text-gnd-gray">
+        <input
+          type="checkbox"
+          checked={pricingLater}
+          onChange={(event) => onPricingLaterChange(event.target.checked)}
+          className="mt-1 h-4 w-4 shrink-0 accent-gnd-red"
+        />
+        <span>{t('becomeGuide.form.pricingLater')}</span>
+      </label>
+
+      <div className="grid gap-4">
+        {pricing.map((tier, index) => (
+          <div key={index} className="relative rounded-xl border border-gnd-cream bg-gnd-cream/10 p-4 pt-6">
+            {pricing.length > 1 && (
+              <button type="button" onClick={() => onRemove(index)} className="absolute right-2 top-2 p-1 text-gnd-gray hover:text-gnd-red">
+                <Trash2 size={16} />
+              </button>
+            )}
+            <div className="mb-4 grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-gnd-gray">{t('becomeGuide.form.skillLevelLabel')}</span>
+                <input
+                  required
+                  disabled={pricingLater}
+                  value={tier.skillLevel}
+                  onChange={(event) => onChange(index, 'skillLevel', event.target.value)}
+                  placeholder={t('becomeGuide.form.skillLevelPlaceholder')}
+                  className="w-full rounded-md border border-gnd-cream px-3 py-2 text-sm focus:border-gnd-red focus:outline-none"
+                />
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-gnd-gray">{t('becomeGuide.form.currency')}</span>
+                <select
+                  value={tier.currency}
+                  disabled={pricingLater}
+                  onChange={(event) => onChange(index, 'currency', event.target.value)}
+                  className="w-full rounded-md border border-gnd-cream bg-white px-3 py-2 text-sm focus:border-gnd-red focus:outline-none"
+                >
+                  {['HKD', 'USD', 'JPY', 'IDR'].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1">
+                <span className="text-xs text-gnd-gray">{t('becomeGuide.form.basePrice')}</span>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  disabled={pricingLater}
+                  value={tier.price1}
+                  onChange={(event) => onChange(index, 'price1', event.target.value)}
+                  placeholder={t('becomeGuide.form.basePricePlaceholder')}
+                  className="w-full rounded-md border border-gnd-cream px-3 py-2 text-sm focus:border-gnd-red focus:outline-none"
+                />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-xs text-gnd-gray">{t('becomeGuide.form.extraPersonFee')}</span>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  disabled={pricingLater}
+                  value={tier.extraPersonFee}
+                  onChange={(event) => onChange(index, 'extraPersonFee', event.target.value)}
+                  placeholder={t('becomeGuide.form.extraPersonFeePlaceholder')}
+                  className="w-full rounded-md border border-gnd-cream px-3 py-2 text-sm focus:border-gnd-red focus:outline-none"
+                />
+              </label>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function QualificationSelect({
   dropdownRef,
   search,
@@ -825,13 +1064,40 @@ function validateStep(stepIndex, form, t) {
   if (stepIndex === 1 && form.credentialName.trim() && !form.certificateUrl) {
     return t('becomeGuide.validation.certificateRequired');
   }
-  if (stepIndex === 2 && (!form.serviceTitle.trim() || !form.serviceLocation.trim())) {
+  if (stepIndex === 2 && (!form.serviceTitle.trim() || (!form.locationIds.length && !form.manualLocation.trim()) || (!form.pricingLater && (!form.pricing.length || !form.pricing[0].price1)))) {
     return t('becomeGuide.validation.service');
   }
   if (stepIndex === 3 && !form.consentReview) {
     return t('becomeGuide.validation.review');
   }
   return '';
+}
+
+function normalizePricingFields(form) {
+  const firstTier = form.pricing[0] || defaultPricingTier;
+  return {
+    ...form,
+    skillLevels: form.pricing.map((tier) => tier.skillLevel).filter(Boolean),
+    currency: firstTier.currency || form.currency || 'HKD',
+    price: form.pricingLater ? 'Confirm later' : (firstTier.price1 || ''),
+    duration: form.minDurationHours ? `${form.minDurationHours} ${Number(form.minDurationHours) === 1 ? 'hour' : 'hours'}` : '',
+  };
+}
+
+function normalizeServiceApplication(form, allLocations) {
+  const normalized = normalizePricingFields(form);
+  const locationNames = allLocations
+    .filter((location) => normalized.locationIds.includes(location.id))
+    .map((location) => location.name)
+    .filter(Boolean);
+
+  const manualLocation = normalized.manualLocation?.trim();
+  const allLocationNames = [...locationNames, manualLocation].filter(Boolean);
+
+  return {
+    ...normalized,
+    serviceLocation: allLocationNames.join(', '),
+  };
 }
 
 function formatActivityLabel(activity, t) {
@@ -845,13 +1111,28 @@ function formatActivityLabel(activity, t) {
 
 function buildSummaryItems(form, t) {
   return [
-    { label: t('becomeGuide.review.legalName'), value: form.legalName },
-    { label: t('becomeGuide.review.publicName'), value: form.publicName },
-    { label: t('becomeGuide.review.activity'), value: form.activityType },
-    { label: t('becomeGuide.review.credential'), value: [form.credentialName, form.attainmentYear].filter(Boolean).join(' / ') },
-    { label: t('becomeGuide.review.service'), value: form.serviceTitle },
-    { label: t('becomeGuide.review.location'), value: form.serviceLocation },
-    { label: t('becomeGuide.review.levels'), value: form.skillLevels.join(', ') },
-    { label: t('becomeGuide.review.price'), value: [form.currency, form.price].filter(Boolean).join(' ') },
+    {
+      title: t('becomeGuide.review.identitySection'),
+      items: [
+        { label: t('becomeGuide.review.legalName'), value: form.legalName },
+        { label: t('becomeGuide.review.publicName'), value: form.publicName },
+      ],
+    },
+    {
+      title: t('becomeGuide.review.expertiseSection'),
+      items: [
+        { label: t('becomeGuide.review.activity'), value: form.activityType },
+        { label: t('becomeGuide.review.credential'), value: [form.credentialName, form.attainmentYear].filter(Boolean).join(' / ') },
+      ],
+    },
+    {
+      title: t('becomeGuide.review.serviceSection'),
+      items: [
+        { label: t('becomeGuide.review.service'), value: form.serviceTitle },
+        { label: t('becomeGuide.review.location'), value: form.serviceLocation || form.manualLocation },
+        { label: t('becomeGuide.review.levels'), value: form.skillLevels.join(', ') },
+        { label: t('becomeGuide.review.price'), value: form.pricingLater ? t('becomeGuide.review.pricingLater') : [form.currency, form.price].filter(Boolean).join(' ') },
+      ],
+    },
   ];
 }
