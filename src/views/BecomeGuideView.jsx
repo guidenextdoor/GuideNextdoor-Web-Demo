@@ -124,6 +124,14 @@ export default function BecomeGuideView() {
   };
 
   const selectQualification = (qualification) => {
+    if (qualification === 'other') {
+      setForm((current) => ({ ...current, qualificationId: 'other', credentialName: '' }));
+      setQualificationSearch('');
+      setShowQualificationDropdown(false);
+      setValidation('');
+      return;
+    }
+
     const name = qualification.qualification_name || qualification.qualification || '';
     setForm((current) => ({ ...current, qualificationId: qualification.id, credentialName: name }));
     setQualificationSearch(name);
@@ -335,6 +343,15 @@ export default function BecomeGuideView() {
               onSelect={selectQualification}
               t={t}
             />
+            {form.qualificationId === 'other' && (
+              <Field
+                label={t('becomeGuide.form.otherCredential')}
+                value={form.credentialName}
+                onChange={(value) => updateField('credentialName', value)}
+                placeholder={t('becomeGuide.form.otherCredentialPlaceholder')}
+                required
+              />
+            )}
             <Field label={t('becomeGuide.form.attainmentYear')} type="number" value={form.attainmentYear} onChange={(value) => updateField('attainmentYear', value)} placeholder="2021" />
             <CertificateUpload
               fileInputRef={certificateInputRef}
@@ -682,6 +699,18 @@ function QualificationSelect({
             {!qualifications.length && (
               <div className="py-6 text-center text-xs font-bold text-gnd-gray">{t('becomeGuide.form.noCredentials')}</div>
             )}
+            <button
+              type="button"
+              onClick={() => onSelect('other')}
+              className={`mt-1 flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left transition hover:bg-gnd-cream/40 ${
+                selectedId === 'other' ? 'border-gnd-red bg-gnd-red/5 text-gnd-red' : 'border-gnd-cream text-gnd-dark'
+              }`}
+            >
+              <span className="text-sm font-black">{t('becomeGuide.form.otherCredentialOption')}</span>
+              <span className={`grid h-5 w-5 place-items-center rounded-full border-2 ${selectedId === 'other' ? 'border-gnd-red bg-gnd-red text-white' : 'border-gnd-cream text-transparent'}`}>
+                <Check size={12} strokeWidth={3} />
+              </span>
+            </button>
           </div>
         </div>
       )}

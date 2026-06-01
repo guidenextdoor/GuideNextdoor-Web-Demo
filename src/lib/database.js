@@ -2477,7 +2477,7 @@ function normalizeCoachApplicationPayload(payload) {
     bio: payload.bio || null,
     profile_photo_url: payload.profilePhotoUrl || null,
     activity_id: payload.activityId || null,
-    qualification_id: payload.qualificationId && payload.qualificationId !== 'custom' ? payload.qualificationId : null,
+    qualification_id: payload.qualificationId && !['custom', 'other'].includes(payload.qualificationId) ? payload.qualificationId : null,
     activity_type: payload.activityType,
     credential_name: payload.credentialName || null,
     attainment_year: payload.attainmentYear ? Number(payload.attainmentYear) : null,

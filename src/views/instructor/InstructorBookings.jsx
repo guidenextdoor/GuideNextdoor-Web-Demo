@@ -128,12 +128,15 @@ function BookingCard({ booking, t, onClick }) {
   };
 
   return (
-    <article className="group flex flex-col gap-4 rounded-lg border border-gnd-cream bg-white p-4 shadow-sm transition-all hover:shadow-md md:flex-row md:items-center md:justify-between md:p-5">
+    <button 
+      onClick={onClick}
+      className="group flex w-full flex-col gap-4 rounded-lg border border-gnd-cream bg-white p-4 shadow-sm transition-all hover:shadow-md hover:border-gnd-red/20 active:scale-[0.99] md:flex-row md:items-center md:justify-between md:p-5"
+    >
       <div className="flex items-center gap-4">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-md bg-gnd-cream/50 text-gnd-red">
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-md bg-gnd-cream/50 text-gnd-red transition-colors group-hover:bg-gnd-cream">
           <CalendarDays size={24} />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 text-left">
           <div className="flex items-center gap-2 mb-1">
             <span className={`rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${statusColors[booking.status] || 'bg-gray-50 text-gray-500 border-gray-100'}`}>
               {booking.status}
@@ -142,7 +145,7 @@ function BookingCard({ booking, t, onClick }) {
               #{booking.id.slice(0, 8)}
             </span>
           </div>
-          <h2 className="text-xl font-black text-gnd-dark truncate">
+          <h2 className="text-xl font-black text-gnd-dark truncate group-hover:text-gnd-red transition-colors">
             {booking.displayLessonDate || formatLessonDate(booking.lessonDate)}
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-sm font-bold text-gnd-gray">
@@ -160,27 +163,20 @@ function BookingCard({ booking, t, onClick }) {
               <Users size={14} className="text-gnd-red" />
               {t('workspace.sessions.groupSize', { count: booking.groupSize })}
             </div>
-            {booking.locationDetails && (
-              <div className="flex items-center gap-1.5">
-                <MapPin size={14} className="text-gnd-red" />
-                {booking.locationDetails.slice(0, 20)}{booking.locationDetails.length > 20 ? '...' : ''}
-              </div>
-            )}
           </div>
         </div>
       </div>
 
       <div className="flex items-center justify-between border-t border-gnd-cream/50 pt-4 md:border-t-0 md:pt-0">
-        <div>
+        <div className="text-left">
           <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gnd-gray/50">{t('workspace.sessions.totalPrice')}</p>
           <p className="text-lg font-black text-gnd-dark">{formatMoney(booking.totalPrice, booking.currency)}</p>
         </div>
-        <button onClick={onClick} className="group/btn flex items-center gap-2 rounded-md bg-gnd-cream px-5 py-3 text-xs font-black text-gnd-dark transition-colors hover:bg-gnd-red hover:text-white">
-          {t('workspace.overview.viewAll')}
-          <ChevronRight size={14} className="transition-transform group-hover/btn:translate-x-0.5" />
-        </button>
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gnd-cream transition-all group-hover:bg-gnd-red group-hover:text-white">
+          <ChevronRight size={18} className="transition-transform group-hover:translate-x-0.5" />
+        </div>
       </div>
-    </article>
+    </button>
   );
 }
 
