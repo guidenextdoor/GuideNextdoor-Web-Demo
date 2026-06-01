@@ -125,5 +125,10 @@
     "macau": "澳门",
     "melbourne": "澳洲墨尔本",
     "kyoto": "日本京都"
+  },
+  "profile": {
+    "sessions": {
+      "title": "预约详情"
+    }
   }
 }

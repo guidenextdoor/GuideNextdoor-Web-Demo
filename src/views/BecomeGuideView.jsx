@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Award, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, IdCard, Loader2, MapPin, Plus, Search, Send, X } from 'lucide-react';
+import { Award, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, IdCard, Loader2, MapPin, Search, Send, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { fetchLanguages, fetchRefActivities, fetchRefQualifications, submitGuideApplication, uploadApplicationPhoto } from '../lib/database';
@@ -124,14 +124,9 @@ export default function BecomeGuideView() {
   };
 
   const selectQualification = (qualification) => {
-    if (qualification === 'custom') {
-      const name = qualificationSearch.trim();
-      setForm((current) => ({ ...current, qualificationId: 'custom', credentialName: name }));
-    } else {
-      const name = qualification.qualification_name || qualification.qualification || '';
-      setForm((current) => ({ ...current, qualificationId: qualification.id, credentialName: name }));
-      setQualificationSearch(name);
-    }
+    const name = qualification.qualification_name || qualification.qualification || '';
+    setForm((current) => ({ ...current, qualificationId: qualification.id, credentialName: name }));
+    setQualificationSearch(name);
     setShowQualificationDropdown(false);
     setValidation('');
   };
@@ -686,16 +681,6 @@ function QualificationSelect({
             })}
             {!qualifications.length && (
               <div className="py-6 text-center text-xs font-bold text-gnd-gray">{t('becomeGuide.form.noCredentials')}</div>
-            )}
-            {search.trim().length > 0 && (
-              <button
-                type="button"
-                onClick={() => onSelect('custom')}
-                className="mt-1 flex w-full items-center gap-2 rounded-xl bg-gnd-red/5 px-3 py-3 text-left text-sm font-black text-gnd-red transition hover:bg-gnd-red/10"
-              >
-                <Plus size={15} />
-                {t('becomeGuide.form.addCredential', { name: search.trim() })}
-              </button>
             )}
           </div>
         </div>
