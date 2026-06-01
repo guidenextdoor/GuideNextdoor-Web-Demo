@@ -484,6 +484,16 @@ export async function deleteInstructorAvailabilityWindow(id) {
   return deleteTable('instructor_availability', { id: `eq.${id}` }, session);
 }
 
+export async function updateInstructorAvailabilityWindow(id, payload) {
+  const session = getCurrentSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_availability' };
+
+  return updateTable('instructor_availability', id, {
+    start_time: payload.startTime,
+    end_time: payload.endTime,
+  }, session);
+}
+
 export async function fetchPosts() {
   const session = getCurrentSession();
   const result = await queryTable('posts', {

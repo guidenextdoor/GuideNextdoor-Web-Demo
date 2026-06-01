@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, CalendarCheck, CheckCircle2, Clock, Plus, Trash2, X } from 'lucide-react';
+import { AlertCircle, CalendarCheck, CheckCircle2, Clock, MessageCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { 
   createInstructorAvailabilityWindow, 
   deleteInstructorAvailabilityWindow, 
   fetchInstructorSchedule,
+  updateInstructorAvailabilityWindow,
   updateInstructorBreakStatus
 } from '../../lib/database';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
@@ -20,12 +22,21 @@ const weekdayOptions = [
   { value: 6, label: 'Sat' },
 ];
 
+const windowPresets = [
+  { label: 'Morning', startTime: '09:00', endTime: '12:00' },
+  { label: 'Afternoon', startTime: '14:00', endTime: '17:00' },
+  { label: 'Evening', startTime: '18:00', endTime: '20:00' },
+];
+
 export default function InstructorSchedule() {
   const { t, i18n } = useTranslation();
   const [state, setState] = useState({ loading: true, data: null, error: null, tableName: '' });
   const [visibleMonth, setVisibleMonth] = useState(getMonthStart(new Date()));
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [monthPickerYear, setMonthPickerYear] = useState(() => new Date().getFullYear());
+  const [editingWindow, setEditingWindow] = useState(null);
   const [form, setForm] = useState({ dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
   const [status, setStatus] = useState({ saving: false, error: '', notice: '' });
 
@@ -59,6 +70,13 @@ export default function InstructorSchedule() {
       return;
     }
 
+    const hasOverlap = hasAvailabilityOverlap(state.data.availability, form);
+
+    if (hasOverlap) {
+      setStatus({ saving: false, error: t('workspace.schedule.overlapWindow'), notice: '' });
+      return;
+    }
+
     setStatus({ saving: true, error: '', notice: '' });
     const result = await createInstructorAvailabilityWindow({
       instructorId: state.data.coach.id,
@@ -78,7 +96,52 @@ export default function InstructorSchedule() {
     loadSchedule();
   };
 
+  const handleStartEditWindow = (window) => {
+    setEditingWindow({
+      id: window.id,
+      dayOfWeek: Number(window.dayOfWeek),
+      startTime: window.startTime,
+      endTime: window.endTime,
+    });
+    setStatus({ saving: false, error: '', notice: '' });
+  };
+
+  const handleUpdateWindow = async (event) => {
+    event.preventDefault();
+    if (!editingWindow?.id) return;
+
+    if (editingWindow.endTime <= editingWindow.startTime) {
+      setStatus({ saving: false, error: t('workspace.schedule.invalidWindow'), notice: '' });
+      return;
+    }
+
+    const hasOverlap = hasAvailabilityOverlap(state.data.availability, editingWindow, editingWindow.id);
+
+    if (hasOverlap) {
+      setStatus({ saving: false, error: t('workspace.schedule.overlapWindow'), notice: '' });
+      return;
+    }
+
+    setStatus({ saving: true, error: '', notice: '' });
+    const result = await updateInstructorAvailabilityWindow(editingWindow.id, editingWindow);
+
+    if (result.error) {
+      setStatus({
+        saving: false,
+        error: result.error === 'auth_required' ? t('workspace.schedule.loginRequired') : t('workspace.schedule.updateFailed'),
+        notice: '',
+      });
+      return;
+    }
+
+    setEditingWindow(null);
+    setStatus({ saving: false, error: '', notice: t('workspace.schedule.updated') });
+    loadSchedule();
+  };
+
   const handleDeleteWindow = async (id) => {
+    if (!window.confirm(t('workspace.schedule.confirmDeleteWindow'))) return;
+
     setStatus({ saving: true, error: '', notice: '' });
     const result = await deleteInstructorAvailabilityWindow(id);
 
@@ -98,12 +161,10 @@ export default function InstructorSchedule() {
   const handleToggleBreak = async () => {
     const coachId = state.data?.coach?.id;
     if (!coachId) {
-      console.warn('handleToggleBreak: No coach ID found');
       return;
     }
     
     const currentStatus = state.data.coach.isOnBreak;
-    console.log(`handleToggleBreak: Toggling break status from ${currentStatus} for coach ${coachId}`);
     setStatus({ saving: true, error: '', notice: '' });
     
     const result = await updateInstructorBreakStatus(coachId, !currentStatus);
@@ -123,7 +184,6 @@ export default function InstructorSchedule() {
       notice: !currentStatus ? t('workspace.schedule.breakEnabled') : t('workspace.schedule.breakDisabled') 
     });
     
-    // Refresh schedule to reflect change
     loadSchedule();
   };
 
@@ -131,6 +191,7 @@ export default function InstructorSchedule() {
     ? buildScheduleMonthCells(state.data.availability, state.data.bookedSlots, visibleMonth)
     : [];
   const upcoming = state.data ? buildUpcomingScheduleItems(state.data.bookedSlots) : { attention: [], confirmed: [], today: [] };
+  const timezoneLabel = state.data?.coach?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
 
   return (
     <InstructorDashboardLayout
@@ -147,48 +208,48 @@ export default function InstructorSchedule() {
 
       {!state.loading && state.data && (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
+            <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
             <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="flex items-center gap-3">
-                  <h2 className="text-xl font-black text-gnd-dark sm:text-2xl">{formatMonthHeading(visibleMonth)}</h2>
-                  {state.data?.coach && (
+                  <div className="relative">
                     <button
                       type="button"
-                      onClick={handleToggleBreak}
-                      disabled={status.saving}
-                      className={`group relative flex items-center gap-2 rounded-full py-1 pl-1 pr-3 text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95 focus:outline-none focus:ring-2 focus:ring-gnd-red/20 ${
-                        state.data.coach.isOnBreak 
-                          ? 'bg-gnd-red text-white shadow-lg shadow-red-600/20' 
-                          : 'bg-gnd-cream text-gnd-gray hover:bg-gnd-cream/80'
-                      }`}
-                      title={state.data.coach.isOnBreak ? t('workspace.schedule.breakDisabled') : t('workspace.schedule.breakEnabled')}
+                      onClick={() => {
+                        setMonthPickerYear(new Date(`${visibleMonth}T00:00:00`).getFullYear());
+                        setMonthPickerOpen((current) => !current);
+                      }}
+                      className="rounded-md text-left outline-none focus:ring-2 focus:ring-gnd-red/25"
+                      aria-expanded={monthPickerOpen}
                     >
-                      <div className={`flex h-4 w-7 items-center rounded-full p-1 transition-colors ${state.data.coach.isOnBreak ? 'bg-white/20' : 'bg-gnd-gray/20'}`}>
-                        <div className={`h-2 w-2 rounded-full transition-transform ${state.data.coach.isOnBreak ? 'translate-x-3 bg-white animate-pulse' : 'translate-x-0 bg-gnd-gray'}`} />
-                      </div>
-                      {state.data.coach.isOnBreak ? t('workspace.schedule.onBreak') : t('workspace.schedule.quickBreak')}
+                      <span className="text-xl font-black text-gnd-dark underline decoration-gnd-cream underline-offset-4 transition hover:text-gnd-red sm:text-2xl">
+                      {formatMonthHeading(visibleMonth)}
+                      </span>
                     </button>
-                  )}
+                    {monthPickerOpen && (
+                      <MonthPicker
+                        year={monthPickerYear}
+                        selectedMonth={visibleMonth}
+                        onYearChange={setMonthPickerYear}
+                        onSelect={(value) => {
+                          setVisibleMonth(value);
+                          setMonthPickerOpen(false);
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
                 <p className="mt-1 text-sm font-bold text-gnd-gray">{t('workspace.schedule.calendarHint')}</p>
+                <p className="mt-1 text-xs font-bold text-gnd-gray">{t('workspace.schedule.timezoneNotice', { timezone: timezoneLabel })}</p>
                 <ScheduleLegend />
               </div>
               <div className="flex flex-col gap-3 sm:items-end">
-                <label className="grid gap-2 text-xs font-black uppercase tracking-widest text-gnd-gray">
-                  {t('workspace.schedule.month')}
-                  <input
-                    type="month"
-                    value={visibleMonth.slice(0, 7)}
-                    onChange={(event) => {
-                      if (event.target.value) setVisibleMonth(`${event.target.value}-01`);
-                    }}
-                    className="rounded-md border border-gnd-cream bg-white px-4 py-2.5 text-sm font-black text-gnd-dark outline-none focus:border-gnd-red"
-                  />
-                </label>
                 <div className="flex gap-2">
                 <button type="button" className="rounded-md bg-gnd-cream px-4 py-2.5 text-xs font-black text-gnd-dark transition-colors hover:bg-gnd-red hover:text-white" onClick={() => setVisibleMonth((current) => shiftMonth(current, -1))}>
                   {t('profile.booking.previousMonth')}
+                </button>
+                <button type="button" className="rounded-md border border-gnd-cream bg-white px-4 py-2.5 text-xs font-black text-gnd-dark transition-colors hover:border-gnd-red hover:text-gnd-red" onClick={() => setVisibleMonth(getMonthStart(new Date()))}>
+                  {t('workspace.schedule.today')}
                 </button>
                 <button type="button" className="rounded-md bg-gnd-cream px-4 py-2.5 text-xs font-black text-gnd-dark transition-colors hover:bg-gnd-red hover:text-white" onClick={() => setVisibleMonth((current) => shiftMonth(current, 1))}>
                   {t('profile.booking.nextMonth')}
@@ -215,21 +276,16 @@ export default function InstructorSchedule() {
                     <DateStatusBadge cell={cell} />
                   </div>
                   <div className="grid min-h-0 flex-1 content-start gap-1">
-                    {cell.blockedSlots.slice(0, 2).map((slot) => (
-                      <p key={`${cell.value}-${slot.id}`} className={`truncate rounded-md px-2 py-1 text-[9px] font-black text-white shadow-sm ${slot.status === 'Confirmed' ? 'bg-green-600 shadow-green-600/10' : 'bg-gnd-red shadow-red-600/20'}`}>
-                        {slot.startTime}-{slot.endTime} · {formatBookingStatus(slot.status)}
-                      </p>
-                    ))}
-                    {cell.availableWindows.slice(0, 2).map((window) => (
-                      <p key={`${cell.value}-${window.id}`} className="truncate rounded-md border border-gnd-cream/30 bg-white px-2 py-1 text-[9px] font-black text-gnd-dark">
-                        {window.startTime}-{window.endTime}
+                    {cell.timeline.slice(0, 4).map((segment) => (
+                      <p key={`${cell.value}-${segment.key}`} className={getTimelineSegmentClass(segment)}>
+                        {segment.startTime}-{segment.endTime} {segment.type === 'booking' ? `· ${formatBookingStatus(segment.status)}` : ''}
                       </p>
                     ))}
                     {!cell.isPast && cell.availableWindows.length === 0 && cell.blockedSlots.length === 0 && (
                       <p className="rounded-md bg-white/70 px-2 py-1 text-[9px] font-black uppercase text-gnd-gray/50">No windows</p>
                     )}
-                    {cell.hiddenCount > 0 && (
-                      <p className="text-[9px] font-black text-gnd-gray">+{cell.hiddenCount} more</p>
+                    {cell.timelineHiddenCount > 0 && (
+                      <p className="text-[9px] font-black text-gnd-gray">+{cell.timelineHiddenCount} more</p>
                     )}
                   </div>
                 </button>
@@ -238,20 +294,57 @@ export default function InstructorSchedule() {
           </section>
 
           <aside className="space-y-5">
-            <ScheduleAttentionPanel upcoming={upcoming} />
+            <ScheduleAttentionPanel upcoming={upcoming} onSelectBooking={setSelectedBooking} language={i18n.language} />
 
             <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
+              <div className="rounded-lg border border-gnd-cream bg-gnd-cream/20 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                   <p className="text-[10px] font-black uppercase tracking-widest text-gnd-red">{t('workspace.schedule.recurring')}</p>
                   <h2 className="mt-1 text-xl font-black text-gnd-dark">{t('workspace.schedule.weeklyWindows')}</h2>
+                  <p className="mt-1 text-xs font-bold text-gnd-gray">
+                    {state.data.coach?.isOnBreak ? t('workspace.schedule.onBreakBody') : t('workspace.schedule.takingBookingsBody', { timezone: timezoneLabel })}
+                  </p>
                 </div>
-                {!state.data.canEdit && (
-                  <span className="rounded-md bg-gnd-cream px-3 py-1 text-[9px] font-black uppercase tracking-widest text-gnd-gray">{t('workspace.schedule.readOnly')}</span>
-                )}
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <span className={`rounded-md px-3 py-1 text-[9px] font-black uppercase tracking-widest ${state.data.coach?.isOnBreak ? 'bg-red-50 text-gnd-red' : 'bg-green-50 text-green-700'}`}>
+                      {state.data.coach?.isOnBreak ? t('workspace.schedule.onBreak') : t('workspace.schedule.quickBreak')}
+                    </span>
+                    {!state.data.canEdit && (
+                      <span className="rounded-md bg-white px-3 py-1 text-[9px] font-black uppercase tracking-widest text-gnd-gray">{t('workspace.schedule.readOnly')}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleToggleBreak}
+                    disabled={status.saving}
+                    className={`inline-flex items-center justify-center rounded-md px-4 py-2.5 text-xs font-black transition disabled:opacity-50 ${
+                      state.data.coach?.isOnBreak
+                        ? 'bg-gnd-dark text-white hover:bg-gnd-red'
+                        : 'border border-gnd-cream bg-white text-gnd-dark hover:border-gnd-red hover:text-gnd-red'
+                    }`}
+                  >
+                    {state.data.coach?.isOnBreak ? t('workspace.schedule.resumeBookings') : t('workspace.schedule.pauseBookings')}
+                  </button>
+                </div>
               </div>
 
               <form className="mt-6 grid gap-4" onSubmit={handleAddWindow}>
+                <div className="flex flex-wrap gap-2">
+                  {windowPresets.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => setForm((current) => ({ ...current, startTime: preset.startTime, endTime: preset.endTime }))}
+                      disabled={!state.data.canEdit}
+                      className="rounded-md border border-gnd-cream bg-white px-3 py-2 text-xs font-black text-gnd-dark transition hover:border-gnd-red hover:text-gnd-red disabled:opacity-50"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
                 <label className="grid gap-2 text-xs font-black uppercase tracking-widest text-gnd-gray">
                   {t('workspace.schedule.day')}
                   <select
@@ -284,18 +377,53 @@ export default function InstructorSchedule() {
 
               <div className="mt-6 space-y-2">
                 {state.data.availability.length ? state.data.availability.map((window) => (
-                  <div key={window.id} className="group/item flex items-center justify-between gap-3 rounded-lg border border-gnd-cream bg-gnd-cream/5 px-4 py-3 transition-colors hover:bg-white">
-                    <div className="min-w-0">
-                      <p className="text-sm font-black text-gnd-dark">{window.dayLabel}</p>
-                      <p className="text-xs font-bold text-gnd-gray">{window.startTime}-{window.endTime}</p>
+                  editingWindow?.id === window.id ? (
+                    <form key={window.id} className="rounded-lg border border-gnd-red/20 bg-white p-3" onSubmit={handleUpdateWindow}>
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <p className="text-sm font-black text-gnd-dark">{window.dayLabel}</p>
+                        <button type="button" className="rounded-md bg-gnd-cream p-2 text-gnd-gray hover:text-gnd-red" onClick={() => setEditingWindow(null)} aria-label={t('workspace.schedule.cancelEdit')}>
+                          <X size={15} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="grid gap-1 text-[10px] font-black uppercase tracking-widest text-gnd-gray">
+                          {t('workspace.schedule.start')}
+                          <input type="time" value={editingWindow.startTime} onChange={(event) => setEditingWindow((current) => ({ ...current, startTime: event.target.value }))} className="rounded-md border border-gnd-cream bg-white px-3 py-2 text-sm font-bold text-gnd-dark outline-none focus:border-gnd-red" disabled={!state.data.canEdit || status.saving} />
+                        </label>
+                        <label className="grid gap-1 text-[10px] font-black uppercase tracking-widest text-gnd-gray">
+                          {t('workspace.schedule.end')}
+                          <input type="time" value={editingWindow.endTime} onChange={(event) => setEditingWindow((current) => ({ ...current, endTime: event.target.value }))} className="rounded-md border border-gnd-cream bg-white px-3 py-2 text-sm font-bold text-gnd-dark outline-none focus:border-gnd-red" disabled={!state.data.canEdit || status.saving} />
+                        </label>
+                      </div>
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button type="button" className="rounded-md border border-gnd-cream bg-white px-3 py-2 text-xs font-black text-gnd-gray hover:border-gnd-red hover:text-gnd-red" onClick={() => setEditingWindow(null)} disabled={status.saving}>
+                          {t('workspace.schedule.cancelEdit')}
+                        </button>
+                        <button type="submit" className="rounded-md bg-gnd-red px-3 py-2 text-xs font-black text-white hover:bg-gnd-dark disabled:opacity-50" disabled={!state.data.canEdit || status.saving}>
+                          {status.saving ? t('states.saving') : t('workspace.schedule.saveChanges')}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div key={window.id} className="group/item flex items-center justify-between gap-3 rounded-lg border border-gnd-cream bg-gnd-cream/5 px-4 py-3 transition-colors hover:bg-white">
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-gnd-dark">{window.dayLabel}</p>
+                        <p className="text-xs font-bold text-gnd-gray">{window.startTime}-{window.endTime}</p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button type="button" className="rounded-md bg-gnd-cream p-2.5 text-gnd-gray opacity-0 transition-opacity hover:bg-white hover:text-gnd-red group-hover/item:opacity-100 disabled:opacity-40" onClick={() => handleStartEditWindow(window)} disabled={!state.data.canEdit || status.saving} aria-label={t('workspace.schedule.editWindow')}>
+                          <Pencil size={15} />
+                        </button>
+                        <button type="button" className="rounded-md bg-gnd-cream p-2.5 text-gnd-red opacity-0 transition-opacity hover:bg-red-50 group-hover/item:opacity-100 disabled:opacity-40" onClick={() => handleDeleteWindow(window.id)} disabled={!state.data.canEdit || status.saving} aria-label={t('workspace.schedule.deleteWindow')}>
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
-                    <button type="button" className="rounded-md bg-gnd-cream p-2.5 text-gnd-red opacity-0 transition-opacity hover:bg-red-50 group-hover/item:opacity-100 disabled:opacity-40" onClick={() => handleDeleteWindow(window.id)} disabled={!state.data.canEdit || status.saving} aria-label={t('workspace.schedule.deleteWindow')}>
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  )
                 )) : (
                   <div className="grid place-items-center rounded-lg border border-dashed border-gnd-cream bg-white/50 p-8 text-center">
                     <p className="text-sm font-bold text-gnd-gray">{t('workspace.schedule.noWindows')}</p>
+                    <p className="mt-1 text-xs font-bold text-gnd-gray">{t('workspace.schedule.noWindowsHint')}</p>
                   </div>
                 )}
               </div>
@@ -341,7 +469,7 @@ function buildScheduleMonthCells(availability, bookedSlots, visibleMonth) {
     const isPast = value < today;
     const availableWindows = isPast ? [] : availability.filter((window) => Number(window.dayOfWeek) === date.getDay());
     const blockedSlots = bookedSlots.filter((slot) => slot.lessonDate === value && ACTIVE_BOOKING_STATUSES.has(String(slot.status || '')));
-    const visibleCount = Math.min(2, availableWindows.length) + Math.min(2, blockedSlots.length);
+    const timeline = buildDayTimeline(availableWindows, blockedSlots);
     return {
       value,
       day: String(index + 1).padStart(2, '0'),
@@ -349,11 +477,81 @@ function buildScheduleMonthCells(availability, bookedSlots, visibleMonth) {
       isToday: value === today,
       availableWindows,
       blockedSlots,
-      hiddenCount: Math.max((availableWindows.length + blockedSlots.length) - visibleCount, 0),
+      timeline,
+      timelineHiddenCount: Math.max(timeline.length - 4, 0),
     };
   });
 
   return [...leadingBlanks, ...days];
+}
+
+function hasAvailabilityOverlap(availability, candidate, excludeId = null) {
+  return (availability || []).some((window) => (
+    window.id !== excludeId
+    && Number(window.dayOfWeek) === Number(candidate.dayOfWeek)
+    && candidate.startTime < window.endTime
+    && candidate.endTime > window.startTime
+  ));
+}
+
+function buildDayTimeline(availableWindows, blockedSlots) {
+  const bookingSegments = (blockedSlots || [])
+    .filter((slot) => slot.startTime && slot.endTime)
+    .map((slot) => ({
+      key: `booking-${slot.id}`,
+      type: 'booking',
+      status: slot.status,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+    }));
+
+  const openSegments = [];
+
+  (availableWindows || []).forEach((window) => {
+    if (!window.startTime || !window.endTime) return;
+
+    let cursor = window.startTime;
+    const overlappingBookings = bookingSegments
+      .filter((slot) => slot.startTime < window.endTime && slot.endTime > window.startTime)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    overlappingBookings.forEach((slot) => {
+      const blockedStart = maxTime(slot.startTime, window.startTime);
+      const blockedEnd = minTime(slot.endTime, window.endTime);
+
+      if (cursor < blockedStart) {
+        openSegments.push({
+          key: `open-${window.id}-${cursor}-${blockedStart}`,
+          type: 'open',
+          startTime: cursor,
+          endTime: blockedStart,
+        });
+      }
+
+      if (cursor < blockedEnd) cursor = blockedEnd;
+    });
+
+    if (cursor < window.endTime) {
+      openSegments.push({
+        key: `open-${window.id}-${cursor}-${window.endTime}`,
+        type: 'open',
+        startTime: cursor,
+        endTime: window.endTime,
+      });
+    }
+  });
+
+  return [...openSegments, ...bookingSegments]
+    .filter((segment) => segment.startTime < segment.endTime)
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime));
+}
+
+function minTime(a, b) {
+  return a <= b ? a : b;
+}
+
+function maxTime(a, b) {
+  return a >= b ? a : b;
 }
 
 const ACTIVE_BOOKING_STATUSES = new Set([
@@ -366,7 +564,7 @@ const ACTIVE_BOOKING_STATUSES = new Set([
 function ScheduleLegend() {
   return (
     <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider">
-      <LegendItem className="bg-white border border-gnd-cream" label="Open" />
+      <LegendItem className="bg-white border border-gnd-red/30" label="Open time" />
       <LegendItem className="bg-gnd-red" label="Needs action" />
       <LegendItem className="bg-green-600" label="Confirmed" />
       <LegendItem className="bg-gray-100 border border-gray-200" label="Past" />
@@ -383,16 +581,69 @@ function LegendItem({ className, label }) {
   );
 }
 
+function getTimelineSegmentClass(segment) {
+  if (segment.type === 'open') {
+    return 'truncate rounded-md border border-gnd-red/20 bg-white px-2 py-1 text-[9px] font-black text-gnd-dark shadow-sm';
+  }
+
+  if (segment.status === 'Confirmed') {
+    return 'truncate rounded-md bg-green-600 px-2 py-1 text-[9px] font-black text-white shadow-sm shadow-green-600/10';
+  }
+
+  return 'truncate rounded-md bg-gnd-red px-2 py-1 text-[9px] font-black text-white shadow-sm shadow-red-600/20';
+}
+
 function DateStatusBadge({ cell }) {
   if (cell.isPast) return null;
   if (cell.isToday) return <span className="rounded-full bg-gnd-red px-2 py-0.5 text-[8px] font-black uppercase text-white">Today</span>;
   if (cell.blockedSlots.some((slot) => slot.status === 'Confirmed')) return <span className="h-1.5 w-1.5 rounded-full bg-green-600" />;
   if (cell.blockedSlots.length) return <span className="h-1.5 w-1.5 rounded-full bg-gnd-red" />;
-  if (cell.availableWindows.length) return <span className="h-1.5 w-1.5 rounded-full bg-white ring-2 ring-green-500" />;
+  if (cell.availableWindows.length) return <span className="rounded-full border border-gnd-red/20 bg-white px-1.5 py-0.5 text-[8px] font-black uppercase text-gnd-gray">Open</span>;
   return null;
 }
 
-function ScheduleAttentionPanel({ upcoming }) {
+function MonthPicker({ year, selectedMonth, onYearChange, onSelect }) {
+  const selected = new Date(`${selectedMonth}T00:00:00`);
+  const selectedYear = selected.getFullYear();
+  const selectedMonthIndex = selected.getMonth();
+
+  return (
+    <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-lg border border-gnd-cream bg-white p-3 shadow-2xl">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <button type="button" className="rounded-md bg-gnd-cream px-3 py-2 text-xs font-black text-gnd-dark hover:bg-gnd-red hover:text-white" onClick={() => onYearChange(year - 1)}>
+          Prev
+        </button>
+        <p className="text-sm font-black text-gnd-dark">{year}</p>
+        <button type="button" className="rounded-md bg-gnd-cream px-3 py-2 text-xs font-black text-gnd-dark hover:bg-gnd-red hover:text-white" onClick={() => onYearChange(year + 1)}>
+          Next
+        </button>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {Array.from({ length: 12 }, (_, monthIndex) => {
+          const value = toDateInputValue(new Date(year, monthIndex, 1));
+          const isSelected = selectedYear === year && selectedMonthIndex === monthIndex;
+
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onSelect(value)}
+              className={`rounded-md px-3 py-2 text-xs font-black transition ${
+                isSelected
+                  ? 'bg-gnd-red text-white'
+                  : 'bg-gnd-cream/60 text-gnd-dark hover:bg-gnd-red hover:text-white'
+              }`}
+            >
+              {new Intl.DateTimeFormat('en', { month: 'short' }).format(new Date(year, monthIndex, 1))}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleAttentionPanel({ upcoming, onSelectBooking, language }) {
   return (
     <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
       <div className="flex items-start justify-between gap-3">
@@ -409,25 +660,31 @@ function ScheduleAttentionPanel({ upcoming }) {
           icon={AlertCircle}
           items={upcoming.attention}
           empty="No pending confirmations."
+          onSelectBooking={onSelectBooking}
+          language={language}
         />
         <ScheduleMiniList
           title="Today"
           icon={Clock}
           items={upcoming.today}
           empty="No sessions today."
+          onSelectBooking={onSelectBooking}
+          language={language}
         />
         <ScheduleMiniList
           title="Next confirmed"
           icon={CheckCircle2}
           items={upcoming.confirmed}
           empty="No confirmed sessions."
+          onSelectBooking={onSelectBooking}
+          language={language}
         />
       </div>
     </section>
   );
 }
 
-function ScheduleMiniList({ title, icon: Icon, items, empty }) {
+function ScheduleMiniList({ title, icon: Icon, items, empty, onSelectBooking, language }) {
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gnd-gray">
@@ -437,9 +694,25 @@ function ScheduleMiniList({ title, icon: Icon, items, empty }) {
       {items.length ? (
         <div className="space-y-2">
           {items.slice(0, 3).map((item) => (
-            <div key={`${title}-${item.id}`} className="rounded-lg bg-gnd-cream/40 px-3 py-2">
-              <p className="truncate text-xs font-black text-gnd-dark">{item.serviceTitle || item.title || 'Session'}</p>
-              <p className="mt-0.5 text-[11px] font-bold text-gnd-gray">{formatShortDate(item.lessonDate)} · {item.startTime || '-'} · {formatBookingStatus(item.status)}</p>
+            <div key={`${title}-${item.id}`} className="flex items-center gap-2 rounded-lg bg-gnd-cream/40 p-2 transition hover:bg-gnd-cream/70">
+              <button
+                type="button"
+                onClick={() => onSelectBooking(item)}
+                className="block min-w-0 flex-1 rounded-md px-1 py-1 text-left"
+              >
+                <p className="truncate text-xs font-black text-gnd-dark">{item.serviceTitle || item.title || 'Session'}</p>
+                <p className="mt-0.5 text-[11px] font-bold text-gnd-gray">{formatShortDate(item.lessonDate)} · {item.startTime || '-'} · {formatBookingStatus(item.status)}</p>
+                <p className="mt-0.5 truncate text-[11px] font-bold text-gnd-gray">{item.learnerName || 'Learner'}</p>
+              </button>
+              {buildLearnerMessagePath(language, item) && (
+                <Link
+                  to={buildLearnerMessagePath(language, item)}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-gnd-red transition hover:bg-gnd-red hover:text-white"
+                  aria-label="Chat with requestor"
+                >
+                  <MessageCircle size={15} />
+                </Link>
+              )}
             </div>
           ))}
         </div>
