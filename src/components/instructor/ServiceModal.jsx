@@ -31,7 +31,9 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
     if (!isOpen) return;
     let isMounted = true;
 
-    setLoading(true);
+    Promise.resolve().then(() => {
+      if (isMounted) setLoading(true);
+    });
 
     Promise.all([
       fetchRefActivities(),
@@ -111,7 +113,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
 
   const handleQualSelect = (qual) => {
     if (qual === 'custom') {
-      setFormData(prev => ({ ...prev, qualificationId: 'custom', customQualification: qualSearch }));
+      setFormData(prev => ({ ...prev, qualificationId: 'custom', customQualification: qualSearch.trim() }));
+      setQualSearch('Other');
     } else {
       setFormData(prev => ({ ...prev, qualificationId: qual.id, customQualification: '' }));
       setQualSearch(qual.qualification_name || qual.qualification);
@@ -159,6 +162,10 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
       alert('Certificate photo is compulsory.');
       return;
     }
+    if (formData.qualificationId === 'custom' && !formData.customQualification.trim()) {
+      alert('Please enter the qualification name.');
+      return;
+    }
     setSaving(true);
     try {
       await onSave({
@@ -174,6 +181,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
   };
 
   const isValid = formData.activityId && 
+                  formData.qualificationId &&
+                  (formData.qualificationId !== 'custom' || formData.customQualification.trim()) &&
                   formData.locationIds.length > 0 && 
                   formData.pricing.length > 0 && 
                   formData.pricing[0].price1 &&
@@ -194,11 +203,11 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
 
           {/* Modal Panel */}
           <motion.div
-            initial={{ x: '100%', opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: '100%', opacity: 0 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col bg-white shadow-2xl"
+            initial={{ opacity: 0, scale: 0.96, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 16 }}
+            transition={{ type: 'spring', damping: 24, stiffness: 260 }}
+            className="fixed inset-0 z-[51] m-auto flex h-[min(92vh,860px)] w-[calc(100vw-2rem)] max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl md:w-[min(92vw,920px)]"
           >
             <div className="flex items-center justify-between border-b border-gnd-cream px-6 py-4">
               <div>
@@ -233,7 +242,10 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                         <select
                           required
                           value={formData.activityId}
-                          onChange={(e) => setFormData(prev => ({ ...prev, activityId: e.target.value, qualificationId: '' }))}
+                          onChange={(e) => {
+                            setFormData(prev => ({ ...prev, activityId: e.target.value, qualificationId: '', customQualification: '' }));
+                            setQualSearch('');
+                          }}
                           className="w-full rounded-lg border border-gnd-cream bg-gnd-cream/30 p-3 text-sm focus:border-gnd-red focus:outline-none focus:ring-1 focus:ring-gnd-red"
                         >
                           <option value="" disabled>Select an activity...</option>
@@ -258,11 +270,13 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                               setShowQualResults(true);
                               if (formData.qualificationId !== 'custom') {
                                 setFormData(prev => ({ ...prev, qualificationId: '', customQualification: '' }));
+                              } else {
+                                setFormData(prev => ({ ...prev, customQualification: e.target.value }));
                               }
                             }}
                             onFocus={handleQualClick}
                             onClick={handleQualClick}
-                            placeholder="Select or add a qualification..."
+                            placeholder="Select a qualification..."
                             className="w-full rounded-lg border border-gnd-cream bg-gnd-cream/30 p-3 text-sm focus:border-gnd-red focus:outline-none focus:ring-1 focus:ring-gnd-red pr-10"
                           />
                           <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gnd-gray group-focus-within:text-gnd-red">
@@ -303,32 +317,45 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                                   </div>
                                 )}
                                 
-                                {qualSearch.length > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleQualSelect('custom')}
-                                    className="flex w-full items-center gap-3 px-4 py-4 text-left hover:bg-red-50 bg-red-50/50 border-t border-gnd-cream/20"
-                                  >
-                                    <Plus size={16} className="text-gnd-red" />
-                                    <div>
-                                      <p className="text-sm font-black text-gnd-red">Add "{qualSearch}"</p>
-                                      <p className="text-[10px] font-bold text-gnd-gray uppercase tracking-widest">Register New Qualification</p>
-                                    </div>
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleQualSelect('custom')}
+                                  className="flex w-full items-center gap-3 border-t border-gnd-cream/20 bg-red-50/50 px-4 py-4 text-left hover:bg-red-50"
+                                >
+                                  <Plus size={16} className="text-gnd-red" />
+                                  <div>
+                                    <p className="text-sm font-black text-gnd-red">Other</p>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gnd-gray">Use when your qualification is not listed</p>
+                                  </div>
+                                </button>
                               </motion.div>
                             </Fragment>
                           )}
                         </AnimatePresence>
 
                         {formData.qualificationId === 'custom' && (
-                           <div className="mt-2 flex items-center gap-2 rounded-lg border border-gnd-red bg-red-50 px-3 py-2">
-                             <div className="flex-1">
-                               <p className="text-[10px] font-black uppercase text-gnd-red">Adding Custom Qualification:</p>
-                               <p className="text-sm font-bold text-gnd-dark">{formData.customQualification}</p>
-                             </div>
-                             <button type="button" onClick={() => { setFormData(prev => ({ ...prev, qualificationId: '', customQualification: '' })); setQualSearch(''); }} className="text-gnd-gray hover:text-gnd-red"><X size={14}/></button>
-                           </div>
+                          <div className="mt-2 space-y-1.5 rounded-lg border border-gnd-red bg-red-50 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="text-xs font-black uppercase tracking-widest text-gnd-red">Other qualification *</label>
+                              <button
+                                type="button"
+                                onClick={() => { setFormData(prev => ({ ...prev, qualificationId: '', customQualification: '' })); setQualSearch(''); }}
+                                className="text-gnd-gray hover:text-gnd-red"
+                              >
+                                <X size={14}/>
+                              </button>
+                            </div>
+                            <input
+                              required
+                              value={formData.customQualification}
+                              onChange={(e) => {
+                                setFormData(prev => ({ ...prev, customQualification: e.target.value }));
+                                setQualSearch(e.target.value);
+                              }}
+                              placeholder="Enter the qualification name"
+                              className="w-full rounded-lg border border-gnd-cream bg-white px-3 py-2 text-sm font-bold text-gnd-dark outline-none focus:border-gnd-red focus:ring-1 focus:ring-gnd-red"
+                            />
+                          </div>
                         )}
                       </div>
                     </div>

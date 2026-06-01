@@ -172,9 +172,6 @@ function BookingCard({ booking, t, onClick }) {
           <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gnd-gray/50">{t('workspace.sessions.totalPrice')}</p>
           <p className="text-lg font-black text-gnd-dark">{formatMoney(booking.totalPrice, booking.currency)}</p>
         </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gnd-cream transition-all group-hover:bg-gnd-red group-hover:text-white">
-          <ChevronRight size={18} className="transition-transform group-hover:translate-x-0.5" />
-        </div>
       </div>
     </button>
   );
