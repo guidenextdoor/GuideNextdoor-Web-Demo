@@ -12,6 +12,8 @@ create table if not exists public.coach_applications (
   language_ids uuid[] not null default '{}',
   bio text,
   profile_photo_url text,
+  activity_id uuid,
+  qualification_id uuid,
   activity_type text not null,
   credential_name text,
   attainment_year integer,

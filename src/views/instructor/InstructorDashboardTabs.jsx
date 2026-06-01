@@ -15,12 +15,12 @@ export default function InstructorDashboardTabs() {
   const basePath = `/${i18n.language}/instructor`;
   const navItems = [
     { to: '', icon: LayoutDashboard, label: t('workspace.overview.title'), end: true },
-    { to: 'bookings', icon: CalendarDays, label: t('workspace.sessions.title') },
+    { to: 'profile', icon: UserCircle, label: t('profile.aboutTitle') },
+    { to: 'posts', icon: ImageIcon, label: t('profile.tabs.posts') },
     { to: 'messages', icon: MessageSquare, label: t('workspace.messages.title') },
+    { to: 'bookings', icon: CalendarDays, label: t('workspace.sessions.title') },
     { to: 'services', icon: Briefcase, label: t('workspace.services.title') },
     { to: 'schedule', icon: CalendarClock, label: t('workspace.schedule.title') },
-    { to: 'posts', icon: ImageIcon, label: t('profile.tabs.posts') },
-    { to: 'profile', icon: UserCircle, label: t('profile.aboutTitle') },
   ];
 
   return (

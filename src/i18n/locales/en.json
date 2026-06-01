@@ -207,6 +207,7 @@
       "noQualification": "Qualification pending"
     },
     "sessions": {
+      "title": "Session Details",
       "from": "From",
       "pricePending": "Price pending",
       "requestBased": "Request based",
@@ -297,23 +298,19 @@
     "steps": {
       "identity": {
         "title": "Identity",
-        "body": "Collect private legal details and the public name learners will see.",
-        "badge": "Private first"
+        "body": "Collect private legal details and the public name learners will see."
       },
       "expertise": {
         "title": "Expertise",
-        "body": "Tie the application to activity type, credentials, and attainment year.",
-        "badge": "Activity based"
+        "body": "Tie the application to activity type, credentials, and attainment year."
       },
       "service": {
         "title": "First service",
-        "body": "Define the activity location and session details learners can request.",
-        "badge": "Learner-facing"
+        "body": "Define the activity location and session details learners can request."
       },
       "review": {
         "title": "Review",
-        "body": "Confirm what we review before public visibility.",
-        "badge": "Admin review"
+        "body": "Confirm what we review before public visibility."
       }
     },
     "form": {
@@ -331,11 +328,16 @@
       "photoHelp": "Use your camera or choose an image from your computer.",
       "bio": "Short bio",
       "activityType": "Activity type",
-      "activityPlaceholder": "e.g. Skiing, tennis, yoga, food tour",
+      "activitySelectPlaceholder": "Select an activity...",
       "credentialName": "Credential or qualification",
-      "credentialPlaceholder": "e.g. SAJ Level 2, RYT 200",
+      "credentialPlaceholder": "Select or add a qualification...",
+      "credentialSearch": "Search qualifications...",
+      "noCredentials": "No verified credentials found for this activity.",
+      "addCredential": "Add \"{{name}}\"",
       "attainmentYear": "Credential attainment year",
-      "certificateUrl": "Certificate URL",
+      "certificatePhoto": "Certificate photo",
+      "certificateAction": "Upload or take a certificate photo",
+      "certificateHelp": "Use your camera or choose an image from your computer.",
       "proofNotes": "Proof of experience if no formal credential",
       "serviceTitle": "First service title",
       "serviceTitlePlaceholder": "e.g. Beginner ski lesson in Niseko",
@@ -360,6 +362,8 @@
     "validation": {
       "identity": "Enter legal name, public display name, and email before continuing.",
       "expertise": "Enter an activity type and either a credential or proof of experience.",
+      "certificateRequired": "Upload a certificate photo for the selected credential.",
+      "certificateUpload": "We could not upload the certificate photo. Please try again.",
       "service": "Enter the first service title and activity location.",
       "review": "Confirm the review consent before submitting.",
       "photoUpload": "Photo preview is ready, but upload failed. Please try again or continue without a photo."

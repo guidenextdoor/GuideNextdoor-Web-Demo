@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Award, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, IdCard, Loader2, MapPin, Search, Send, X } from 'lucide-react';
+import { Award, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, IdCard, Loader2, MapPin, Plus, Search, Send, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { fetchLanguages, submitGuideApplication, uploadApplicationPhoto } from '../lib/database';
+import { fetchLanguages, fetchRefActivities, fetchRefQualifications, submitGuideApplication, uploadApplicationPhoto } from '../lib/database';
 import { compressImage } from '../lib/image-utils';
 
 const skillLevelOptions = ['Beginner', 'Intermediate', 'Advanced', 'All levels'];
@@ -15,6 +15,8 @@ const initialForm = {
   languageIds: [],
   bio: '',
   profilePhotoUrl: '',
+  activityId: '',
+  qualificationId: '',
   activityType: '',
   credentialName: '',
   attainmentYear: '',
@@ -48,22 +50,42 @@ export default function BecomeGuideView() {
   const [error, setError] = useState('');
   const [validation, setValidation] = useState('');
   const [allLanguages, setAllLanguages] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [qualifications, setQualifications] = useState([]);
   const [languageSearch, setLanguageSearch] = useState('');
+  const [qualificationSearch, setQualificationSearch] = useState('');
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
+  const [showQualificationDropdown, setShowQualificationDropdown] = useState(false);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState('');
+  const [certificatePreviewUrl, setCertificatePreviewUrl] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [certificateUploading, setCertificateUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const certificateInputRef = useRef(null);
   const languageDropdownRef = useRef(null);
+  const qualificationDropdownRef = useRef(null);
 
   const currentStep = steps[stepIndex];
   const isFinalStep = stepIndex === steps.length - 1;
   const summaryItems = useMemo(() => buildSummaryItems(form, t), [form, t]);
   const selectedLanguages = allLanguages.filter((language) => form.languageIds.includes(language.id));
+  const filteredQualifications = qualifications.filter((qualification) => {
+    const matchesActivity = !form.activityId || qualification.activity_id === form.activityId;
+    const label = qualification.qualification_name || qualification.qualification || '';
+    return matchesActivity && label.toLowerCase().includes(qualificationSearch.toLowerCase());
+  });
 
   useEffect(() => {
     let cancelled = false;
-    fetchLanguages().then((result) => {
-      if (!cancelled) setAllLanguages(result.data || []);
+    Promise.all([
+      fetchLanguages(),
+      fetchRefActivities(),
+      fetchRefQualifications(),
+    ]).then(([languageResult, activityResult, qualificationResult]) => {
+      if (cancelled) return;
+      setAllLanguages(languageResult.data || []);
+      setActivities(activityResult.data || []);
+      setQualifications(qualificationResult.data || []);
     });
     return () => {
       cancelled = true;
@@ -75,6 +97,9 @@ export default function BecomeGuideView() {
       if (languageDropdownRef.current && !languageDropdownRef.current.contains(event.target)) {
         setShowLanguageDropdown(false);
       }
+      if (qualificationDropdownRef.current && !qualificationDropdownRef.current.contains(event.target)) {
+        setShowQualificationDropdown(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -82,6 +107,32 @@ export default function BecomeGuideView() {
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
+    setValidation('');
+  };
+
+  const updateActivity = (activityId) => {
+    const activity = activities.find((item) => item.id === activityId);
+    setForm((current) => ({
+      ...current,
+      activityId,
+      activityType: formatActivityLabel(activity, t),
+      qualificationId: '',
+      credentialName: '',
+    }));
+    setQualificationSearch('');
+    setValidation('');
+  };
+
+  const selectQualification = (qualification) => {
+    if (qualification === 'custom') {
+      const name = qualificationSearch.trim();
+      setForm((current) => ({ ...current, qualificationId: 'custom', credentialName: name }));
+    } else {
+      const name = qualification.qualification_name || qualification.qualification || '';
+      setForm((current) => ({ ...current, qualificationId: qualification.id, credentialName: name }));
+      setQualificationSearch(name);
+    }
+    setShowQualificationDropdown(false);
     setValidation('');
   };
 
@@ -129,6 +180,30 @@ export default function BecomeGuideView() {
     }
   };
 
+  const handleCertificatePhotoChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const previewUrl = URL.createObjectURL(file);
+    setCertificatePreviewUrl(previewUrl);
+    setCertificateUploading(true);
+    setValidation('');
+
+    try {
+      const compressed = await compressImage(file, { maxWidth: 1400, maxHeight: 1400, quality: 0.86 });
+      const result = await uploadApplicationPhoto(compressed, 'certificates');
+      if (result.data) {
+        updateField('certificateUrl', result.data);
+      } else {
+        setValidation(t('becomeGuide.validation.certificateUpload'));
+      }
+    } catch {
+      setValidation(t('becomeGuide.validation.certificateUpload'));
+    } finally {
+      setCertificateUploading(false);
+    }
+  };
+
   const goNext = () => {
     const message = validateStep(stepIndex, form, t);
     if (message) {
@@ -171,6 +246,8 @@ export default function BecomeGuideView() {
     setStatus('success');
     setForm(initialForm);
     setPhotoPreviewUrl('');
+    setCertificatePreviewUrl('');
+    setQualificationSearch('');
     setStepIndex(0);
   };
 
@@ -178,45 +255,33 @@ export default function BecomeGuideView() {
     <motion.section
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mx-auto grid max-w-7xl gap-8 px-5 py-10 md:px-8 md:py-14 lg:grid-cols-[0.82fr_1.18fr]"
+      className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14"
     >
-      <aside>
+      <div>
         <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-gnd-red">{t('becomeGuide.eyebrow')}</p>
         <h1 className="text-4xl font-black tracking-tight md:text-6xl">{t('becomeGuide.title')}</h1>
         <p className="mt-5 max-w-xl text-base leading-7 text-gnd-gray">{t('becomeGuide.subtitle')}</p>
 
-        <div className="mt-10 grid gap-3">
-          {steps.map((step, index) => {
-            const Icon = step.icon;
-            const isActive = index === stepIndex;
-            const isDone = index < stepIndex;
-            return (
-              <button
-                key={step.key}
-                type="button"
-                onClick={() => {
-                  if (index <= stepIndex) setStepIndex(index);
-                }}
-                className={`flex gap-3 rounded-lg p-4 text-left transition ${
-                  isActive ? 'bg-gnd-red text-white shadow-lg shadow-red-900/10' : 'bg-white text-gnd-dark'
-                }`}
-              >
-                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${isActive ? 'bg-white/15' : 'bg-gnd-cream text-gnd-red'}`}>
-                  {isDone ? <Check size={18} /> : <Icon size={18} />}
-                </span>
-                <span>
-                  <span className="block text-sm font-black">{t(`becomeGuide.steps.${step.key}.title`)}</span>
-                  <span className={`mt-1 block text-xs font-bold leading-5 ${isActive ? 'text-white/75' : 'text-gnd-gray'}`}>
-                    {t(`becomeGuide.steps.${step.key}.body`)}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+        <div className="mt-8 grid gap-2 md:grid-cols-4">
+          {steps.map((step, index) => (
+            <StepButton
+              key={step.key}
+              step={step}
+              index={index}
+              stepIndex={stepIndex}
+              onSelect={() => {
+                if (index <= stepIndex) setStepIndex(index);
+              }}
+              t={t}
+            />
+          ))}
         </div>
-      </aside>
+        <p className="mt-3 rounded-lg bg-white px-4 py-3 text-sm font-bold leading-6 text-gnd-gray shadow-sm shadow-red-900/5">
+          {t(`becomeGuide.steps.${currentStep.key}.body`)}
+        </p>
+      </div>
 
-      <form onSubmit={handleSubmit} className="rounded-lg bg-white p-5 shadow-xl shadow-red-900/5 md:p-7">
+      <form onSubmit={handleSubmit} className="mt-8 rounded-lg bg-white p-5 shadow-xl shadow-red-900/5 md:p-7">
         <div className="mb-6 flex items-center justify-between gap-4 border-b border-gnd-cream pb-5">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-gnd-red">
@@ -224,9 +289,6 @@ export default function BecomeGuideView() {
             </p>
             <h2 className="mt-1 text-2xl font-black">{t(`becomeGuide.steps.${currentStep.key}.title`)}</h2>
           </div>
-          <span className="rounded-full bg-gnd-cream px-3 py-1 text-xs font-black text-gnd-red">
-            {t(`becomeGuide.steps.${currentStep.key}.badge`)}
-          </span>
         </div>
 
         {currentStep.key === 'identity' && (
@@ -260,10 +322,32 @@ export default function BecomeGuideView() {
 
         {currentStep.key === 'expertise' && (
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label={t('becomeGuide.form.activityType')} value={form.activityType} onChange={(value) => updateField('activityType', value)} placeholder={t('becomeGuide.form.activityPlaceholder')} required />
-            <Field label={t('becomeGuide.form.credentialName')} value={form.credentialName} onChange={(value) => updateField('credentialName', value)} placeholder={t('becomeGuide.form.credentialPlaceholder')} />
+            <ActivitySelect
+              activities={activities}
+              value={form.activityId}
+              onChange={updateActivity}
+              t={t}
+            />
+            <QualificationSelect
+              dropdownRef={qualificationDropdownRef}
+              search={qualificationSearch}
+              setSearch={setQualificationSearch}
+              showDropdown={showQualificationDropdown}
+              setShowDropdown={setShowQualificationDropdown}
+              qualifications={filteredQualifications}
+              selectedId={form.qualificationId}
+              selectedName={form.credentialName}
+              onSelect={selectQualification}
+              t={t}
+            />
             <Field label={t('becomeGuide.form.attainmentYear')} type="number" value={form.attainmentYear} onChange={(value) => updateField('attainmentYear', value)} placeholder="2021" />
-            <Field label={t('becomeGuide.form.certificateUrl')} value={form.certificateUrl} onChange={(value) => updateField('certificateUrl', value)} placeholder="https://..." />
+            <CertificateUpload
+              fileInputRef={certificateInputRef}
+              previewUrl={certificatePreviewUrl || form.certificateUrl}
+              uploading={certificateUploading}
+              onChange={handleCertificatePhotoChange}
+              t={t}
+            />
             <TextArea label={t('becomeGuide.form.proofNotes')} value={form.proofNotes} onChange={(value) => updateField('proofNotes', value)} className="md:col-span-2" />
           </div>
         )}
@@ -372,6 +456,40 @@ export default function BecomeGuideView() {
   );
 }
 
+function StepButton({ step, index, stepIndex, onSelect, t }) {
+  const Icon = step.icon;
+  const isActive = index === stepIndex;
+  const isDone = index < stepIndex;
+  const isLocked = index > stepIndex;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={isLocked}
+      aria-current={isActive ? 'step' : undefined}
+      className={`group flex min-h-[72px] items-center gap-3 rounded-lg border px-3 py-3 text-left transition ${
+        isActive
+          ? 'border-gnd-red bg-gnd-red text-white shadow-lg shadow-red-900/10'
+          : 'border-transparent bg-white text-gnd-dark shadow-sm shadow-red-900/5'
+      } ${isLocked ? 'cursor-not-allowed opacity-55' : 'hover:-translate-y-0.5 hover:border-gnd-red/30 hover:shadow-lg hover:shadow-red-900/10'}`}
+    >
+      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition ${isActive ? 'bg-white/15' : 'bg-gnd-cream text-gnd-red group-hover:bg-gnd-red/10'}`}>
+        {isDone ? <Check size={18} /> : <Icon size={18} />}
+      </span>
+      <span className="min-w-0">
+        <span className={`block text-[10px] font-black uppercase tracking-[0.14em] ${isActive ? 'text-white/70' : 'text-gnd-gray/70'}`}>
+          {index + 1 < 10 ? `0${index + 1}` : index + 1}
+        </span>
+        <span className="block truncate text-sm font-black">{t(`becomeGuide.steps.${step.key}.title`)}</span>
+        <span className={`mt-2 block h-1.5 rounded-full transition ${isActive || isDone ? 'bg-current opacity-80' : 'bg-gnd-cream'}`}>
+          <span className={`block h-full rounded-full ${isActive || isDone ? 'bg-current' : 'bg-transparent'}`} />
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function Field({ label, value, onChange, type = 'text', required = false, placeholder = '', privateNote = '' }) {
   return (
     <label className="grid gap-2">
@@ -441,6 +559,147 @@ function PhotoUpload({ fileInputRef, previewUrl, uploading, onChange, t }) {
         className="sr-only"
         onChange={onChange}
       />
+    </div>
+  );
+}
+
+function CertificateUpload({ fileInputRef, previewUrl, uploading, onChange, t }) {
+  return (
+    <div className="grid gap-2">
+      <span className="text-sm font-black">{t('becomeGuide.form.certificatePhoto')}</span>
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        className="flex min-h-[112px] items-center gap-4 rounded-lg border border-dashed border-gnd-cream bg-gnd-cream/30 p-4 text-left transition hover:border-gnd-red/40 hover:bg-gnd-cream/50"
+      >
+        <span className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl bg-white text-gnd-red shadow-sm">
+          {previewUrl ? (
+            <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <Camera size={24} />
+          )}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-black text-gnd-dark">{t('becomeGuide.form.certificateAction')}</span>
+          <span className="mt-1 block text-xs font-bold leading-5 text-gnd-gray">{t('becomeGuide.form.certificateHelp')}</span>
+          {uploading && (
+            <span className="mt-2 inline-flex items-center gap-1 text-xs font-black text-gnd-red">
+              <Loader2 size={13} className="animate-spin" />
+              {t('states.saving')}
+            </span>
+          )}
+        </span>
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        onChange={onChange}
+      />
+    </div>
+  );
+}
+
+function ActivitySelect({ activities, value, onChange, t }) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-sm font-black">{t('becomeGuide.form.activityType')} <span className="text-gnd-red">*</span></span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        required
+        className="h-12 rounded-lg bg-gnd-cream px-4 text-sm font-semibold outline-none focus:ring-2 focus:ring-gnd-red/20"
+      >
+        <option value="">{t('becomeGuide.form.activitySelectPlaceholder')}</option>
+        {activities.map((activity) => (
+          <option key={activity.id} value={activity.id}>
+            {formatActivityLabel(activity, t)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function QualificationSelect({
+  dropdownRef,
+  search,
+  setSearch,
+  showDropdown,
+  setShowDropdown,
+  qualifications,
+  selectedId,
+  selectedName,
+  onSelect,
+  t,
+}) {
+  return (
+    <div className="relative grid gap-2" ref={dropdownRef}>
+      <span className="text-sm font-black">{t('becomeGuide.form.credentialName')}</span>
+      <button
+        type="button"
+        onClick={() => setShowDropdown((current) => !current)}
+        className={`flex h-12 items-center gap-2 rounded-lg px-4 text-left text-sm font-semibold outline-none transition ${
+          showDropdown ? 'bg-white ring-2 ring-gnd-red/20' : 'bg-gnd-cream'
+        }`}
+      >
+        <span className={`min-w-0 flex-1 truncate ${selectedName ? 'text-gnd-dark' : 'text-gnd-gray/60'}`}>
+          {selectedName || t('becomeGuide.form.credentialPlaceholder')}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-gnd-gray transition ${showDropdown ? 'rotate-180 text-gnd-red' : ''}`} />
+      </button>
+
+      {showDropdown && (
+        <div className="absolute left-0 top-full z-50 mt-2 max-h-[320px] w-full overflow-hidden rounded-2xl border border-gnd-cream bg-white shadow-2xl shadow-red-900/10">
+          <div className="border-b border-gnd-cream p-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gnd-gray" />
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t('becomeGuide.form.credentialSearch')}
+                className="w-full rounded-lg bg-gnd-cream/40 py-2 pl-9 pr-4 text-xs font-bold outline-none focus:bg-gnd-cream/60"
+                onClick={(event) => event.stopPropagation()}
+              />
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1.5">
+            {qualifications.map((qualification) => {
+              const label = qualification.qualification_name || qualification.qualification || '';
+              const isSelected = selectedId === qualification.id;
+              return (
+                <button
+                  key={qualification.id}
+                  type="button"
+                  onClick={() => onSelect(qualification)}
+                  className={`group flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-gnd-cream/40 ${isSelected ? 'bg-gnd-red/5' : ''}`}
+                >
+                  <span className={`block truncate text-sm font-bold ${isSelected ? 'text-gnd-red' : 'text-gnd-dark'}`}>{label}</span>
+                  <span className={`grid h-5 w-5 place-items-center rounded-full border-2 ${isSelected ? 'border-gnd-red bg-gnd-red text-white' : 'border-gnd-cream text-transparent group-hover:border-gnd-red/30'}`}>
+                    <Check size={12} strokeWidth={3} />
+                  </span>
+                </button>
+              );
+            })}
+            {!qualifications.length && (
+              <div className="py-6 text-center text-xs font-bold text-gnd-gray">{t('becomeGuide.form.noCredentials')}</div>
+            )}
+            {search.trim().length > 0 && (
+              <button
+                type="button"
+                onClick={() => onSelect('custom')}
+                className="mt-1 flex w-full items-center gap-2 rounded-xl bg-gnd-red/5 px-3 py-3 text-left text-sm font-black text-gnd-red transition hover:bg-gnd-red/10"
+              >
+                <Plus size={15} />
+                {t('becomeGuide.form.addCredential', { name: search.trim() })}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -544,8 +803,11 @@ function validateStep(stepIndex, form, t) {
   if (stepIndex === 0 && (!form.legalName.trim() || !form.publicName.trim() || !form.email.trim())) {
     return t('becomeGuide.validation.identity');
   }
-  if (stepIndex === 1 && (!form.activityType.trim() || (!form.credentialName.trim() && !form.proofNotes.trim()))) {
+  if (stepIndex === 1 && (!form.activityId || (!form.credentialName.trim() && !form.proofNotes.trim()))) {
     return t('becomeGuide.validation.expertise');
+  }
+  if (stepIndex === 1 && form.credentialName.trim() && !form.certificateUrl) {
+    return t('becomeGuide.validation.certificateRequired');
   }
   if (stepIndex === 2 && (!form.serviceTitle.trim() || !form.serviceLocation.trim())) {
     return t('becomeGuide.validation.service');
@@ -554,6 +816,15 @@ function validateStep(stepIndex, form, t) {
     return t('becomeGuide.validation.review');
   }
   return '';
+}
+
+function formatActivityLabel(activity, t) {
+  if (!activity) return '';
+  const key = activity.translation_key || activity.category_key || '';
+  if (!key) return activity.name || 'Activity';
+  return t(key, {
+    defaultValue: key.replace(/^activity\./, '').split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
+  });
 }
 
 function buildSummaryItems(form, t) {

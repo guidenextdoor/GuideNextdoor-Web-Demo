@@ -267,7 +267,7 @@ export async function fetchServices() {
 export async function fetchSessionSearchData() {
   const [servicesResult, locationsResult, activitiesResult] = await Promise.all([
     queryTable('instructor_services', {
-      select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*),instructor_profiles(id,user_id,users(id,display_name,avatar_url,username,email),locations(*))',
+      select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*),instructor_profiles(id,user_id,users(id,display_name,nickname,avatar_url,username,email),locations(*))',
       is_active: 'eq.true',
       service_approval_status: 'in.(approved,Approved)',
       order: 'attainment_year.desc',
@@ -494,7 +494,7 @@ export async function fetchPosts() {
 
   return {
     ...result,
-    data: (result.data || []).map((row) => normalizePost(row)).filter(isPublicQualityPost),
+    data: (result.data || []).map((row) => normalizePost(row)),
   };
 }
 
@@ -518,7 +518,7 @@ export async function toggleSavedPost(post) {
 
 export async function fetchPostComments(postId) {
   const result = await queryTable('post_comments', {
-    select: '*,users(display_name,avatar_url)',
+    select: '*,users(display_name,nickname,avatar_url)',
     post_id: `eq.${postId}`,
     status: 'eq.visible',
     order: 'created_at.asc',
@@ -564,12 +564,12 @@ export async function uploadFile(bucket, file, customPath = null) {
   return { data: null, error: await response.text() };
 }
 
-export async function uploadApplicationPhoto(file) {
+export async function uploadApplicationPhoto(file, folder = 'profile-photos') {
   if (!databaseStatus.hasConfig) return { data: null, error: 'missing_config' };
 
   const extension = file.name?.split('.').pop()?.toLowerCase() || 'jpg';
   const fileName = `${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}.${extension}`;
-  const path = `profile-photos/${fileName}`;
+  const path = `${folder}/${fileName}`;
   const url = new URL(`/storage/v1/object/coach-applications/${path}`, SUPABASE_URL);
 
   const response = await fetch(url.toString(), {
@@ -885,7 +885,7 @@ async function fetchInstructorServiceBookings(services, session = null) {
   if (!serviceIds.length) return { data: [], error: null, tableName: 'bookings' };
 
   return queryTable('bookings', {
-    select: '*,users(id,display_name,avatar_url,username,email),messages(*)',
+    select: '*,users(id,display_name,nickname,avatar_url,username,email),messages(*)',
     service_id: `in.(${serviceIds.join(',')})`,
     order: 'lesson_date.asc,start_time_utc.asc',
     limit: '240',
@@ -1369,7 +1369,7 @@ function normalizeReview(row) {
     comment: row.comment || '',
     createdAt: row.created_at || '',
     displayDate: formatPostDate(row.created_at),
-    reviewerName: user.display_name || user.username || 'GuideNextdoor learner',
+    reviewerName: displayUserName(user),
     lessonDate: booking.lesson_date || '',
     skillLevel: booking.skill_level_booked || '',
     groupSize: booking.group_size || null,
@@ -1425,7 +1425,7 @@ function normalizeBookedSlot(row) {
     locationDetails: row.location_details || '',
     learnerId: row.learner_id || user.id || '',
     learnerUsername: user.username || '',
-    learnerName: user.display_name || user.email || 'GuideNextdoor learner',
+    learnerName: displayUserName(user),
     learnerAvatar: user.avatar_url || '',
     learnerNote: firstMessage?.text_content || '',
     createdAt: row.created_at || '',
@@ -1545,7 +1545,7 @@ export async function fetchConversations() {
 
   const [learnerResult, instructorProfileResult] = await Promise.all([
     queryTable('bookings', {
-      select: '*,messages(*),instructor_services(instructor_profiles(user_id,users(id,display_name,avatar_url,username,email)),ref_activities(translation_key)),users(id,display_name,avatar_url,username,email)',
+      select: '*,messages(*),instructor_services(instructor_profiles(user_id,users(id,display_name,nickname,avatar_url,username,email)),ref_activities(translation_key)),users(id,display_name,nickname,avatar_url,username,email)',
       learner_id: `eq.${session.user.id}`,
       order: 'lesson_date.desc,created_at.desc',
     }, session),
@@ -1568,7 +1568,7 @@ export async function fetchConversations() {
     const serviceIds = (servicesResult.data || []).map((service) => service.id).filter(Boolean);
     const instructorBookings = serviceIds.length
       ? await queryTable('bookings', {
-          select: '*,messages(*),instructor_services(instructor_profiles(user_id,users(id,display_name,avatar_url,username,email)),ref_activities(translation_key)),users(id,display_name,avatar_url,username,email)',
+          select: '*,messages(*),instructor_services(instructor_profiles(user_id,users(id,display_name,nickname,avatar_url,username,email)),ref_activities(translation_key)),users(id,display_name,nickname,avatar_url,username,email)',
           service_id: `in.(${serviceIds.join(',')})`,
           order: 'lesson_date.desc,created_at.desc',
         }, session)
@@ -1596,12 +1596,12 @@ export async function fetchConversations() {
     const conversationIds = [...new Set(participantResult.data.map((row) => row.conversation_id).filter(Boolean))];
     const [allParticipantsResult, messagesResult, conversationsResult] = await Promise.all([
       queryTable('conversation_participants', {
-        select: 'conversation_id,user_id,users(id,display_name,avatar_url,username,email)',
+        select: 'conversation_id,user_id,users(id,display_name,nickname,avatar_url,username,email)',
         conversation_id: `in.(${conversationIds.join(',')})`,
         limit: '480',
       }, session),
       queryTable('messages', {
-        select: '*,users(id,display_name,avatar_url,username,email)',
+        select: '*,users(id,display_name,nickname,avatar_url,username,email)',
         conversation_id: `in.(${conversationIds.join(',')})`,
         order: 'created_at.asc',
         limit: '1000',
@@ -1656,7 +1656,7 @@ export async function ensureDirectConversationWithUser(userIdentifier) {
   if (existingPair.data) return existingPair;
 
   const participantResult = await queryTable('conversation_participants', {
-    select: 'conversation_id,user_id,users(id,display_name,avatar_url,username,email)',
+    select: 'conversation_id,user_id,users(id,display_name,nickname,avatar_url,username,email)',
     user_id: `in.(${session.user.id},${otherUserId})`,
     limit: '500',
   }, session);
@@ -1853,7 +1853,7 @@ export async function fetchConversationMessages(conversation) {
   const results = await Promise.all([
     conversationIds.length
       ? queryTable('messages', {
-          select: '*,users(id,display_name,avatar_url,username,email)',
+          select: '*,users(id,display_name,nickname,avatar_url,username,email)',
           conversation_id: `in.(${conversationIds.join(',')})`,
           order: 'created_at.asc',
           limit: '1000',
@@ -1861,7 +1861,7 @@ export async function fetchConversationMessages(conversation) {
       : { data: [], error: null },
     bookingIds.length
       ? queryTable('messages', {
-          select: '*,users(id,display_name,avatar_url,username,email)',
+          select: '*,users(id,display_name,nickname,avatar_url,username,email)',
           booking_id: `in.(${bookingIds.join(',')})`,
           order: 'created_at.asc',
           limit: '1000',
@@ -2219,7 +2219,7 @@ function normalizeMessage(row, currentUserId) {
 }
 
 function displayUserName(user = {}) {
-  return user.display_name || user.username || user.email || 'GuideNextdoor user';
+  return user.nickname || user.display_name || user.username || user.email || 'GuideNextdoor user';
 }
 
 function groupBy(items, getKey) {
@@ -2242,7 +2242,7 @@ function normalizeComment(row) {
     body: row.body,
     createdAt: row.created_at,
     displayDate: formatPostDate(row.created_at),
-    userName: user.display_name || 'GuideNextdoor user',
+    userName: displayUserName(user),
     avatarUrl: user.avatar_url || '',
   };
 }
@@ -2293,13 +2293,6 @@ function normalizePost(row) {
     liked,
     saved,
   };
-}
-
-function isPublicQualityPost(post) {
-  const text = String(post.caption || post.title || '').trim();
-  if (text.length < 12) return false;
-  if (/^[a-z]{1,5}\1{2,}$/i.test(text.replace(/\s/g, ''))) return false;
-  return true;
 }
 
 async function createInteraction(tableName, postId, session = null) {
@@ -2483,6 +2476,8 @@ function normalizeCoachApplicationPayload(payload) {
     language_ids: payload.languageIds || [],
     bio: payload.bio || null,
     profile_photo_url: payload.profilePhotoUrl || null,
+    activity_id: payload.activityId || null,
+    qualification_id: payload.qualificationId && payload.qualificationId !== 'custom' ? payload.qualificationId : null,
     activity_type: payload.activityType,
     credential_name: payload.credentialName || null,
     attainment_year: payload.attainmentYear ? Number(payload.attainmentYear) : null,

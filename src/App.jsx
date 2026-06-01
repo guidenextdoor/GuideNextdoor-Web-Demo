@@ -35,6 +35,10 @@ function LanguageWrapper() {
     }
   }, [lang, i18n]);
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location.pathname]);
+
   if (!supportedLangs.includes(lang)) {
     return <Navigate to="/en" replace />;
   }

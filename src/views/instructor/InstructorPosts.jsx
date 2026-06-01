@@ -1,21 +1,25 @@
 import { useEffect, useState } from 'react';
 import { Image as ImageIcon, Inbox, PlusSquare, MapPin, Heart, MessageCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { fetchInstructorSchedule } from '../../lib/database';
+import { motion, AnimatePresence } from 'framer-motion';
+import { fetchInstructorSchedule, togglePostLike, toggleSavedPost } from '../../lib/database';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
 import CreatePostModal from '../../components/CreatePostModal';
+import PostDetailModal from '../../components/PostDetailModal';
 
 export default function InstructorPosts() {
-  const { t } = useTranslation();
-  const [state, setState] = useState({ loading: true, data: [], error: null });
+  const { t, i18n } = useTranslation();
+  const [state, setState] = useState({ loading: true, data: null, error: null });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedPostId, setSelectedPostId] = useState(null);
+  const [notice, setNotice] = useState('');
 
   async function loadPosts() {
     setState(prev => ({ ...prev, loading: true }));
     const result = await fetchInstructorSchedule();
     setState({
       loading: false,
-      data: result.data?.posts || [],
+      data: result.data || null,
       error: result.error
     });
   }
@@ -24,8 +28,64 @@ export default function InstructorPosts() {
     loadPosts();
   }, []);
 
-  const totalPosts = state.data.length;
-  const totalLikes = state.data.reduce((sum, post) => sum + (post.likes || 0), 0);
+  const posts = state.data?.posts || [];
+  const coach = state.data?.coach || {};
+  const totalPosts = posts.length;
+  const totalLikes = posts.reduce((sum, post) => sum + (post.likes || 0), 0);
+
+  const selectedPost = posts.find((p) => p.id === selectedPostId);
+
+  const updatePost = (postId, updater) => {
+    setState((current) => {
+      if (!current.data) return current;
+      return {
+        ...current,
+        data: {
+          ...current.data,
+          posts: current.data.posts.map((post) => (post.id === postId ? updater(post) : post)),
+        },
+      };
+    });
+  };
+
+  const handleLike = async (post) => {
+    const nextLiked = !post.liked;
+    updatePost(post.id, (current) => ({
+      ...current,
+      liked: nextLiked,
+      likes: Math.max(0, current.likes + (nextLiked ? 1 : -1)),
+    }));
+
+    const result = await togglePostLike(post);
+    if (result.alreadyExists) {
+      updatePost(post.id, (current) => ({
+        ...current,
+        liked: true,
+        likes: post.likes,
+      }));
+      return;
+    }
+
+    if (result.error) {
+      updatePost(post.id, (current) => ({
+        ...current,
+        liked: post.liked,
+        likes: post.likes,
+      }));
+      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : 'Interaction failed.');
+    }
+  };
+
+  const handleSave = async (post) => {
+    const nextSaved = !post.saved;
+    updatePost(post.id, (current) => ({ ...current, saved: nextSaved }));
+
+    const result = await toggleSavedPost(post);
+    if (result.error) {
+      updatePost(post.id, (current) => ({ ...current, saved: post.saved }));
+      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : 'Interaction failed.');
+    }
+  };
 
   return (
     <InstructorDashboardLayout
@@ -90,7 +150,7 @@ export default function InstructorPosts() {
             </button>
           </div>
         </div>
-      ) : state.data.length === 0 ? (
+      ) : posts.length === 0 ? (
         <div className="grid place-items-center rounded-lg border border-gnd-cream bg-white p-12 shadow-sm sm:p-16">
           <Inbox size={48} className="mb-4 text-gnd-cream" />
           <h2 className="flex items-center gap-2 text-2xl font-black text-gnd-dark">
@@ -101,8 +161,13 @@ export default function InstructorPosts() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {state.data.map((post) => (
-            <InstructorPostCard key={post.id} post={post} t={t} />
+          {posts.map((post) => (
+            <InstructorPostCard 
+              key={post.id} 
+              post={post} 
+              t={t} 
+              onOpen={() => setSelectedPostId(post.id)}
+            />
           ))}
         </div>
       )}
@@ -114,13 +179,40 @@ export default function InstructorPosts() {
           t={t}
         />
       )}
+
+      {selectedPost && (
+        <PostDetailModal
+          post={{
+            ...selectedPost,
+            // Ensure coach data is present for the modal
+            coachName: coach.nickname || coach.displayName || 'Me',
+            avatarUrl: coach.avatarUrl || selectedPost.avatarUrl,
+          }}
+          onClose={() => setSelectedPostId(null)}
+          onLike={() => handleLike(selectedPost)}
+          onSave={() => handleSave(selectedPost)}
+          profilePath={`/${i18n.language}/guide/${coach.username || coach.id}`}
+          messagePath={`/${i18n.language}/messages`}
+          t={t}
+        />
+      )}
+
+      {notice && (
+        <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-gnd-dark px-5 py-3 text-sm font-bold text-white shadow-2xl">
+          {notice}
+          <button type="button" className="ml-3 text-white/70" onClick={() => setNotice('')}>{t('explore.dismiss')}</button>
+        </div>
+      )}
     </InstructorDashboardLayout>
   );
 }
 
-function InstructorPostCard({ post, t }) {
+function InstructorPostCard({ post, t, onOpen }) {
   return (
-    <article className="group overflow-hidden rounded-xl border border-gnd-cream bg-white shadow-sm transition-all hover:shadow-md">
+    <article 
+      onClick={onOpen}
+      className="group cursor-pointer overflow-hidden rounded-xl border border-gnd-cream bg-white shadow-sm transition-all hover:shadow-md"
+    >
       <div className="relative aspect-[4/5] overflow-hidden bg-gnd-cream">
         <img 
           src={post.imageUrl} 
