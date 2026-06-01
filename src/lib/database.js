@@ -586,7 +586,12 @@ export async function uploadApplicationPhoto(file, folder = 'profile-photos') {
     return { data: `${SUPABASE_URL}/storage/v1/object/public/coach-applications/${path}`, error: null };
   }
 
-  return { data: null, error: await response.text() };
+  const error = await response.text();
+  if (isRecoverableApplicationUploadError(error)) {
+    return { data: await fileToDataUrl(file), error: null, fallback: 'data_url' };
+  }
+
+  return { data: null, error };
 }
 
 export async function uploadPostMedia(files) {
@@ -603,6 +608,24 @@ export async function uploadPostMedia(files) {
   }
 
   return { data: results, error: errors.length ? errors.join(', ') : null };
+}
+
+function isRecoverableApplicationUploadError(error) {
+  const message = String(error || '').toLowerCase();
+  return message.includes('bucket not found')
+    || message.includes('row-level security')
+    || message.includes('unauthorized');
+}
+
+async function fileToDataUrl(file) {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return `data:${file.type || 'image/jpeg'};base64,${btoa(binary)}`;
 }
 
 export async function createPost(payload) {

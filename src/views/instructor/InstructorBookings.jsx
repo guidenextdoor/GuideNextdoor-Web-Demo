@@ -112,7 +112,6 @@ export default function InstructorBookings() {
         <BookingDetailModal 
           booking={selectedBooking} 
           onClose={() => setSelectedBooking(null)} 
-          t={t} 
         />
       )}
     </InstructorDashboardLayout>

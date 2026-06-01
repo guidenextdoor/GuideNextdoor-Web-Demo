@@ -13,13 +13,17 @@ import {
   Pencil,
   Circle,
   CreditCard,
-  Info
+  Info,
+  ChevronRight
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { motion, AnimatePresence } from 'framer-motion';
 import { updateBookingRequest } from '../lib/database';
 
-export default function BookingDetailModal({ booking, onClose, t, messagePath = '', onUpdated }) {
+export default function BookingDetailModal({ booking, onClose, messagePath = '', onUpdated }) {
+  const { t, i18n } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     startTime: booking?.startTime || '',
@@ -27,6 +31,9 @@ export default function BookingDetailModal({ booking, onClose, t, messagePath = 
     totalPrice: booking?.totalPrice ?? 0,
   });
   const [editStatus, setEditStatus] = useState({ saving: false, error: '' });
+
+  const lang = i18n.language || 'en';
+  const resolvedMessagePath = messagePath || `/${lang}/instructor/messages?user=${booking?.learnerUsername || booking?.learnerId || ''}`;
 
   useEffect(() => {
     // Prevent background scrolling
@@ -179,7 +186,10 @@ export default function BookingDetailModal({ booking, onClose, t, messagePath = 
                   <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray/60 flex items-center gap-2">
                     <User size={14} /> Requested By
                   </h3>
-                  <div className="flex items-center gap-5 rounded-3xl border border-gnd-cream/40 bg-white p-5 shadow-sm">
+                  <Link 
+                    to={resolvedMessagePath}
+                    className="group/card flex items-center gap-5 rounded-3xl border border-gnd-cream/40 bg-white p-5 shadow-sm transition-all hover:border-gnd-red/20 hover:shadow-md active:scale-[0.98]"
+                  >
                     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-gnd-cream border-2 border-white shadow-md">
                       {booking.learnerAvatar ? (
                         <img src={booking.learnerAvatar} alt="" className="h-full w-full object-cover" />
@@ -189,11 +199,14 @@ export default function BookingDetailModal({ booking, onClose, t, messagePath = 
                         </div>
                       )}
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-xl font-black text-gnd-dark truncate">{booking.learnerName}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xl font-black text-gnd-dark truncate group-hover/card:text-gnd-red transition-colors">{booking.learnerName}</p>
                       <p className="mt-1 text-xs font-bold text-gnd-gray/60">Requested on {formatDate(booking.createdAt)}</p>
                     </div>
-                  </div>
+                    <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full bg-gnd-cream/30 text-gnd-gray group-hover/card:bg-gnd-red group-hover/card:text-white transition-all">
+                      <MessageCircle size={18} />
+                    </div>
+                  </Link>
                 </div>
 
                 <div className="rounded-3xl border border-gnd-cream bg-white p-6 shadow-sm">
@@ -238,9 +251,9 @@ export default function BookingDetailModal({ booking, onClose, t, messagePath = 
                   Edit Details
                 </button>
               )}
-              {messagePath && (
+              {resolvedMessagePath && (
                 <Link
-                  to={messagePath}
+                  to={resolvedMessagePath}
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border-2 border-gnd-dark bg-white px-6 text-xs font-black text-gnd-dark transition-all hover:bg-gnd-dark hover:text-white active:scale-95"
                 >
                   <MessageCircle size={16} />
@@ -367,5 +380,3 @@ function formatMoney(value, currency = 'USD') {
   }).format(Number(value) || 0);
   return `${currency} ${formatted}`;
 }
-
-const AnimatePresence = ({ children }) => children; // Basic shim if framer-motion is missing components

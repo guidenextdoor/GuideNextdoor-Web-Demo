@@ -578,7 +578,9 @@ function PhotoUpload({ fileInputRef, previewUrl, uploading, onChange, t }) {
 function CertificateUpload({ fileInputRef, previewUrl, uploading, onChange, t }) {
   return (
     <div className="grid gap-2">
-      <span className="text-sm font-black">{t('becomeGuide.form.certificatePhoto')}</span>
+      <span className="text-sm font-black">
+        {t('becomeGuide.form.certificatePhoto')} <span className="text-gnd-red">*</span>
+      </span>
       <button
         type="button"
         onClick={() => fileInputRef.current?.click()}
