@@ -279,6 +279,7 @@
     "eyebrow": "Coach onboarding",
     "title": "Apply to be visible on GuideNextdoor.",
     "subtitle": "Tell us where you coach, what you offer, and how learners should evaluate your experience. Approved coaches can publish public services after review.",
+    "stepCounter": "Step {{current}} of {{total}}",
     "checklist": {
       "profile": {
         "title": "Profile basics",
@@ -293,16 +294,86 @@
         "body": "We review coach details before public listing visibility."
       }
     },
+    "steps": {
+      "identity": {
+        "title": "Identity",
+        "body": "Collect private legal details and the public name learners will see.",
+        "badge": "Private first"
+      },
+      "expertise": {
+        "title": "Expertise",
+        "body": "Tie the application to activity type, credentials, and attainment year.",
+        "badge": "Activity based"
+      },
+      "service": {
+        "title": "First service",
+        "body": "Define the activity location and session details learners can request.",
+        "badge": "Learner-facing"
+      },
+      "review": {
+        "title": "Review",
+        "body": "Confirm what we review before public visibility.",
+        "badge": "Admin review"
+      }
+    },
     "form": {
-      "name": "Name",
+      "legalName": "Full legal name",
+      "publicName": "Public display name",
+      "private": "Private",
       "email": "Email",
       "phone": "Phone",
-      "location": "Location",
-      "role": "Role",
+      "languages": "Languages",
+      "languagesPlaceholder": "Select languages...",
+      "languageSearch": "Search languages...",
+      "noLanguages": "No languages found",
+      "profilePhoto": "Profile photo",
+      "photoAction": "Upload or take a photo",
+      "photoHelp": "Use your camera or choose an image from your computer.",
       "bio": "Short bio",
+      "activityType": "Activity type",
+      "activityPlaceholder": "e.g. Skiing, tennis, yoga, food tour",
+      "credentialName": "Credential or qualification",
+      "credentialPlaceholder": "e.g. SAJ Level 2, RYT 200",
+      "attainmentYear": "Credential attainment year",
+      "certificateUrl": "Certificate URL",
+      "proofNotes": "Proof of experience if no formal credential",
+      "serviceTitle": "First service title",
+      "serviceTitlePlaceholder": "e.g. Beginner ski lesson in Niseko",
+      "serviceLocation": "Activity location",
+      "serviceLocationPlaceholder": "e.g. Niseko Grand Hirafu, Victoria Park",
+      "meetingPoint": "Meeting point",
+      "duration": "Duration",
+      "durationPlaceholder": "e.g. 2 hours, half day",
+      "maxGroupSize": "Max group size",
+      "price": "Price",
+      "pricePlaceholder": "e.g. 800 or ask for price",
+      "skillLevels": "Suitable skill levels",
+      "serviceDescription": "Service description",
+      "availability": "Typical availability",
+      "consentReview": "I understand my legal name and submitted proof are private verification details, and my public profile/services will only appear after GuideNextdoor review.",
+      "back": "Back",
+      "continue": "Continue",
       "submit": "Submit application",
-      "success": "Application submitted.",
+      "success": "Application submitted for review.",
       "schemaPending": "Applications are temporarily unavailable. Please try again later."
+    },
+    "validation": {
+      "identity": "Enter legal name, public display name, and email before continuing.",
+      "expertise": "Enter an activity type and either a credential or proof of experience.",
+      "service": "Enter the first service title and activity location.",
+      "review": "Confirm the review consent before submitting.",
+      "photoUpload": "Photo preview is ready, but upload failed. Please try again or continue without a photo."
+    },
+    "review": {
+      "legalName": "Legal name",
+      "publicName": "Public name",
+      "activity": "Activity",
+      "credential": "Credential",
+      "service": "Service",
+      "location": "Activity location",
+      "levels": "Levels",
+      "price": "Price",
+      "notProvided": "Not provided"
     }
   },
   "workspace": {

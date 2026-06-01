@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, Search, UserRoundPlus, X } from 'lucide-react';
+import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { fetchCurrentInstructorProfile, getCurrentSession, signOut } from '../lib/database';
 
@@ -115,22 +115,13 @@ export default function Navbar() {
                 {t('auth.signOut')}
               </button>
             ) : (
-              <>
-                <Link
-                  to={toPath('login')}
-                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-gnd-gray transition hover:bg-white hover:text-gnd-red"
-                >
-                  <LogIn size={16} />
-                  {t('nav.login')}
-                </Link>
-                <Link
-                  to={toPath('become-guide')}
-                  className="flex items-center gap-2 rounded-lg bg-gnd-dark px-4 py-2 text-sm font-bold text-white transition hover:bg-gnd-red shadow-lg shadow-gnd-dark/10"
-                >
-                  <UserRoundPlus size={16} />
-                  {t('nav.becomeGuide')}
-                </Link>
-              </>
+              <Link
+                to={toPath('login')}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-gnd-gray transition hover:bg-white hover:text-gnd-red"
+              >
+                <LogIn size={16} />
+                {t('nav.login')}
+              </Link>
             )}
           </div>
 
@@ -227,24 +218,14 @@ export default function Navbar() {
                   {t('auth.signOut')}
                 </button>
               ) : (
-                <>
-                  <Link
-                    to={toPath('login')}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex items-center justify-center gap-3 rounded-xl border-2 border-gnd-dark/10 px-4 py-4 text-sm font-bold text-gnd-dark transition hover:bg-gnd-dark/5"
-                  >
-                    <LogIn size={20} />
-                    {t('nav.login')}
-                  </Link>
-                  <Link
-                    to={toPath('become-guide')}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="flex items-center justify-center gap-3 rounded-xl bg-gnd-dark px-4 py-4 text-sm font-bold text-white shadow-xl shadow-gnd-dark/10 transition hover:bg-gnd-red active:scale-[0.98]"
-                  >
-                    <UserRoundPlus size={20} className="text-white" />
-                    <span className="text-white">{t('nav.becomeGuide')}</span>
-                  </Link>
-                </>
+                <Link
+                  to={toPath('login')}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="flex items-center justify-center gap-3 rounded-xl border-2 border-gnd-dark/10 px-4 py-4 text-sm font-bold text-gnd-dark transition hover:bg-gnd-dark/5"
+                >
+                  <LogIn size={20} />
+                  {t('nav.login')}
+                </Link>
               )}
             </div>
           </div>

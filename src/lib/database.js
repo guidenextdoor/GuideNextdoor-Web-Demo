@@ -5,7 +5,7 @@ const tableCandidates = {
   coaches: ['instructor_profiles'],
   services: ['instructor_services'],
   locations: ['locations', 'service_locations', 'destinations'],
-  applications: ['waitlist'],
+  applications: ['coach_applications'],
   posts: ['posts'],
 };
 
@@ -564,6 +564,31 @@ export async function uploadFile(bucket, file, customPath = null) {
   return { data: null, error: await response.text() };
 }
 
+export async function uploadApplicationPhoto(file) {
+  if (!databaseStatus.hasConfig) return { data: null, error: 'missing_config' };
+
+  const extension = file.name?.split('.').pop()?.toLowerCase() || 'jpg';
+  const fileName = `${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}.${extension}`;
+  const path = `profile-photos/${fileName}`;
+  const url = new URL(`/storage/v1/object/coach-applications/${path}`, SUPABASE_URL);
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': file.type,
+    },
+    body: file,
+  });
+
+  if (response.ok) {
+    return { data: `${SUPABASE_URL}/storage/v1/object/public/coach-applications/${path}`, error: null };
+  }
+
+  return { data: null, error: await response.text() };
+}
+
 export async function uploadPostMedia(files) {
   const results = [];
   const errors = [];
@@ -1025,7 +1050,7 @@ export async function submitGuideApplication(payload) {
 
   const errors = [];
   for (const tableName of tableCandidates.applications) {
-    const insertPayload = tableName === 'waitlist' ? normalizeWaitlistPayload(payload) : payload;
+    const insertPayload = tableName === 'coach_applications' ? normalizeCoachApplicationPayload(payload) : payload;
     const url = new URL(`/rest/v1/${tableName}`, SUPABASE_URL);
     const response = await fetch(url.toString(), {
       method: 'POST',
@@ -2448,16 +2473,44 @@ function getAuthStorageKey() {
   }
 }
 
-function normalizeWaitlistPayload(payload) {
+function normalizeCoachApplicationPayload(payload) {
   return {
     email: payload.email,
-    user_type: payload.role || 'coach',
-    language: 'en',
-    marketing_opt_in: true,
-    full_name: payload.full_name,
+    legal_name: payload.legalName,
+    public_display_name: payload.publicName,
     phone: payload.phone || null,
-    location: payload.location,
+    languages: payload.languageLabels?.length ? payload.languageLabels : splitList(payload.languages),
+    language_ids: payload.languageIds || [],
+    bio: payload.bio || null,
+    profile_photo_url: payload.profilePhotoUrl || null,
+    activity_type: payload.activityType,
+    credential_name: payload.credentialName || null,
+    attainment_year: payload.attainmentYear ? Number(payload.attainmentYear) : null,
+    certificate_url: payload.certificateUrl || null,
+    proof_notes: payload.proofNotes || null,
+    service_title: payload.serviceTitle,
+    service_location: payload.serviceLocation,
+    meeting_point: payload.meetingPoint || null,
+    service_description: payload.serviceDescription || null,
+    skill_levels: payload.skillLevels || [],
+    duration: payload.duration || null,
+    max_group_size: payload.maxGroupSize ? Number(payload.maxGroupSize) : null,
+    price_text: payload.price || null,
+    currency: payload.currency || 'HKD',
+    availability_notes: payload.availability || null,
+    consent_review: Boolean(payload.consentReview),
+    source: payload.source || 'platform_homepage',
+    submitted_at: payload.submitted_at || new Date().toISOString(),
+    status: 'new',
   };
+}
+
+function splitList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function normalizeLocation(row) {
