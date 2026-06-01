@@ -2,8 +2,6 @@ import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   CalendarClock,
-  Briefcase,
-  CalendarDays,
   Image as ImageIcon,
   LayoutDashboard,
   MessageSquare,
@@ -18,14 +16,12 @@ export default function InstructorDashboardTabs() {
     { to: 'profile', icon: UserCircle, label: t('profile.aboutTitle') },
     { to: 'posts', icon: ImageIcon, label: t('profile.tabs.posts') },
     { to: 'messages', icon: MessageSquare, label: t('workspace.messages.title') },
-    { to: 'bookings', icon: CalendarDays, label: t('workspace.sessions.title') },
-    { to: 'services', icon: Briefcase, label: t('workspace.services.title') },
     { to: 'schedule', icon: CalendarClock, label: t('workspace.schedule.title') },
   ];
 
   return (
     <nav aria-label="Instructor workspace">
-      <div className="grid grid-cols-2 gap-1 rounded-lg bg-gnd-cream/60 p-1 sm:grid-cols-4 xl:grid-cols-7">
+      <div className="grid grid-cols-2 gap-1 rounded-lg bg-gnd-cream/60 p-1 sm:grid-cols-3 xl:grid-cols-5">
         {navItems.map((item) => (
           <NavLink
             key={item.to}

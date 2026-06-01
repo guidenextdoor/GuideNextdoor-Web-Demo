@@ -659,9 +659,9 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
   const timeSectionRef = useRef(null);
   const skillLevels = service.pricing.length ? service.pricing.map((pricing) => pricing.skillLevel).filter(Boolean) : ['Beginner', 'Intermediate', 'Advanced'];
   const today = toDateInputValue(new Date());
-  const initialDateOptions = buildBookingDateOptions(coach.availability, coach.bookedSlots, getMonthStart(new Date()), 1);
+  const initialDateOptions = buildBookingDateOptions(coach.availability, coach.availabilityOverrides, coach.bookedSlots, getMonthStart(new Date()), 1);
   const initialDate = initialDateOptions.find((option) => option.hasAvailability && !option.isPast)?.value || today;
-  const initialSlots = getAvailableStartTimes(coach.availability, coach.bookedSlots, initialDate, 1);
+  const initialSlots = getAvailableStartTimes(coach.availability, coach.availabilityOverrides, coach.bookedSlots, initialDate, 1);
   const [visibleMonth, setVisibleMonth] = useState(getMonthStart(initialDate));
   const [form, setForm] = useState({
     lessonDate: initialDate,
@@ -673,11 +673,11 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
     note: '',
   });
   const [status, setStatus] = useState({ saving: false, error: '' });
-  const dateOptions = buildBookingDateOptions(coach.availability, coach.bookedSlots, visibleMonth, form.durationHours);
+  const dateOptions = buildBookingDateOptions(coach.availability, coach.availabilityOverrides, coach.bookedSlots, visibleMonth, form.durationHours);
   const calendarCells = buildCalendarCells(dateOptions, visibleMonth);
-  const matchingSlots = getAvailabilityForDate(coach.availability, form.lessonDate);
+  const matchingSlots = getAvailabilityForDate(coach.availability, coach.availabilityOverrides, form.lessonDate);
   const blockedSlots = getBlockedSlotsForDate(coach.bookedSlots, form.lessonDate);
-  const startTimes = getAvailableStartTimes(coach.availability, coach.bookedSlots, form.lessonDate, form.durationHours);
+  const startTimes = getAvailableStartTimes(coach.availability, coach.availabilityOverrides, coach.bookedSlots, form.lessonDate, form.durationHours);
   const totalPrice = calculateBookingPrice(service, form.skillLevel, form.groupSize, form.durationHours);
 
   const updateField = (field, value) => {
@@ -798,7 +798,7 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
                   value={form.lessonDate}
                   onChange={(event) => {
                     const value = event.target.value;
-                    const nextSlots = getAvailableStartTimes(coach.availability, coach.bookedSlots, value, form.durationHours);
+                    const nextSlots = getAvailableStartTimes(coach.availability, coach.availabilityOverrides, coach.bookedSlots, value, form.durationHours);
                     setVisibleMonth(getMonthStart(value));
                     setForm((current) => ({
                       ...current,
@@ -824,7 +824,7 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
                   type="button"
                   disabled={option.isPast}
                   onClick={() => {
-                    const nextSlots = getAvailableStartTimes(coach.availability, coach.bookedSlots, option.value, form.durationHours);
+                    const nextSlots = getAvailableStartTimes(coach.availability, coach.availabilityOverrides, coach.bookedSlots, option.value, form.durationHours);
                     setForm((current) => ({
                       ...current,
                       lessonDate: option.value,
@@ -921,7 +921,7 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
                   value={form.durationHours}
                   onChange={(event) => {
                     const durationHours = Number(event.target.value);
-                    const nextSlots = getAvailableStartTimes(coach.availability, coach.bookedSlots, form.lessonDate, durationHours);
+                    const nextSlots = getAvailableStartTimes(coach.availability, coach.availabilityOverrides, coach.bookedSlots, form.lessonDate, durationHours);
                     setForm((current) => ({
                       ...current,
                       durationHours,
@@ -1055,16 +1055,18 @@ function formatCurrency(value, currency) {
   return `${code} ${amount}`;
 }
 
-function getAvailabilityForDate(availability, lessonDate) {
+function getAvailabilityForDate(availability, availabilityOverrides, lessonDate) {
   if (!lessonDate) return [];
 
   const date = new Date(`${lessonDate}T00:00:00`);
   if (Number.isNaN(date.getTime())) return [];
 
-  return availability.filter((slot) => Number(slot.dayOfWeek) === date.getDay());
+  const recurring = availability.filter((slot) => Number(slot.dayOfWeek) === date.getDay());
+  const overrides = (availabilityOverrides || []).filter((override) => override.date === lessonDate);
+  return getEffectiveAvailabilityForDate(recurring, overrides);
 }
 
-function buildBookingDateOptions(availability, bookedSlots, visibleMonth, durationHours) {
+function buildBookingDateOptions(availability, availabilityOverrides, bookedSlots, visibleMonth, durationHours) {
   const today = new Date();
   const firstDay = typeof visibleMonth === 'string' ? new Date(`${visibleMonth}T00:00:00`) : new Date(visibleMonth);
   const year = firstDay.getFullYear();
@@ -1077,8 +1079,8 @@ function buildBookingDateOptions(availability, bookedSlots, visibleMonth, durati
     const value = toDateInputValue(date);
     const dayOfWeek = date.getDay();
     const isPast = value < toDateInputValue(today);
-    const weeklySlots = availability.filter((slot) => Number(slot.dayOfWeek) === dayOfWeek);
-    const availableCount = isPast ? 0 : getAvailableStartTimes(availability, bookedSlots, value, durationHours).length;
+    const weeklySlots = getAvailabilityForDate(availability, availabilityOverrides, value);
+    const availableCount = isPast ? 0 : getAvailableStartTimes(availability, availabilityOverrides, bookedSlots, value, durationHours).length;
     const blockedCount = getBlockedSlotsForDate(bookedSlots, value).length;
 
     return {
@@ -1109,6 +1111,25 @@ function getMonthStart(value) {
   return toDateInputValue(new Date(date.getFullYear(), date.getMonth(), 1));
 }
 
+function getEffectiveAvailabilityForDate(recurring, overrides) {
+  const extraOpen = (overrides || []).filter((override) => override.isAvailable);
+  const unavailable = (overrides || []).filter((override) => !override.isAvailable);
+  let windows = [...(recurring || []), ...extraOpen]
+    .filter((window) => window.startTime && window.endTime && window.startTime < window.endTime);
+
+  unavailable.forEach((block) => {
+    windows = windows.flatMap((window) => {
+      if (!timeRangesOverlap(window.startTime, window.endTime, block.startTime, block.endTime)) return [window];
+      const segments = [];
+      if (window.startTime < block.startTime) segments.push({ ...window, endTime: block.startTime });
+      if (block.endTime < window.endTime) segments.push({ ...window, startTime: block.endTime });
+      return segments.filter((segment) => segment.startTime < segment.endTime);
+    });
+  });
+
+  return windows.sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime));
+}
+
 function shiftMonth(value, offset) {
   const date = new Date(`${value}T00:00:00`);
   return toDateInputValue(new Date(date.getFullYear(), date.getMonth() + offset, 1));
@@ -1130,8 +1151,8 @@ function getSlotStartTimes(slots) {
   return [...times].sort();
 }
 
-function getAvailableStartTimes(availability, bookedSlots, lessonDate, durationHours) {
-  const weeklySlots = getAvailabilityForDate(availability, lessonDate);
+function getAvailableStartTimes(availability, availabilityOverrides, bookedSlots, lessonDate, durationHours) {
+  const weeklySlots = getAvailabilityForDate(availability, availabilityOverrides, lessonDate);
   const blockedSlots = getBlockedSlotsForDate(bookedSlots, lessonDate);
   const durationMinutes = Math.max(Number(durationHours) || 1, 1) * 60;
 
@@ -1165,6 +1186,10 @@ function getBlockedSlotsForDate(bookedSlots, lessonDate) {
 
 function rangesOverlap(startA, endA, startB, endB) {
   if (startB === null || endB === null) return false;
+  return startA < endB && startB < endA;
+}
+
+function timeRangesOverlap(startA, endA, startB, endB) {
   return startA < endB && startB < endA;
 }
 

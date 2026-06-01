@@ -14,6 +14,10 @@ const PENDING_BOOKING_STATUSES = new Set([
   'Pending instructor confirmation',
   'Pending learner confirmation',
 ]);
+const ACTIVE_BOOKING_STATUSES_FOR_VALIDATION = new Set([
+  ...PENDING_BOOKING_STATUSES,
+  'Confirmed',
+]);
 
 const COMPLETION_PROMPT_MESSAGE_TYPE = 'booking_completion_prompt';
 const AUTO_COMPLETED_MESSAGE_TYPE = 'booking_auto_completed';
@@ -304,13 +308,21 @@ export async function fetchSessionSearchData() {
   const instructorIds = [...new Set(services.map((service) => service.instructorId).filter(Boolean))];
   const serviceIds = services.map((service) => service.id).filter(Boolean);
 
-  const [availabilityResult, busySlotsResult] = await Promise.all([
+  const [availabilityResult, overridesResult, busySlotsResult] = await Promise.all([
     instructorIds.length
       ? queryTable('instructor_availability', {
           select: '*',
           instructor_id: `in.(${instructorIds.join(',')})`,
           is_active: 'eq.true',
           order: 'day_of_week.asc,start_time.asc',
+          limit: '1000',
+        })
+      : { data: [], error: null },
+    instructorIds.length
+      ? queryTable('instructor_availability_overrides', {
+          select: '*',
+          instructor_id: `in.(${instructorIds.join(',')})`,
+          order: 'override_date.asc,start_time.asc',
           limit: '1000',
         })
       : { data: [], error: null },
@@ -328,6 +340,10 @@ export async function fetchSessionSearchData() {
     (availabilityResult.data || []).map((row) => normalizeAvailability({ ...row, id: row.id || `${row.instructor_id}-${row.day_of_week}-${row.start_time}` })),
     (row) => row.instructorId,
   );
+  const overridesByInstructor = groupBy(
+    (overridesResult.data || []).map((row) => normalizeAvailabilityOverride({ ...row, instructor_id: row.instructor_id })),
+    (row) => row.instructorId,
+  );
   const bookingsByService = groupBy((busySlotsResult.data || []).map((row) => normalizeSearchBooking(row)), (row) => row.serviceId);
 
   return {
@@ -335,6 +351,7 @@ export async function fetchSessionSearchData() {
       results: services.map((service) => ({
         ...service,
         availability: availabilityByInstructor.get(service.instructorId) || [],
+        availabilityOverrides: overridesByInstructor.get(service.instructorId) || [],
         bookedSlots: bookingsByService.get(service.id) || [],
       })),
       locations: locationsResult.data || [],
@@ -343,8 +360,8 @@ export async function fetchSessionSearchData() {
         label: humanizeKey(activity.translation_key || activity.category_key || 'Activity'),
       })),
     },
-    error: availabilityResult.error || busySlotsResult.error || null,
-    tableName: availabilityResult.tableName || busySlotsResult.tableName || 'instructor_services',
+    error: availabilityResult.error || overridesResult.error || busySlotsResult.error || null,
+    tableName: availabilityResult.tableName || overridesResult.tableName || busySlotsResult.tableName || 'instructor_services',
   };
 }
 
@@ -492,6 +509,37 @@ export async function updateInstructorAvailabilityWindow(id, payload) {
     start_time: payload.startTime,
     end_time: payload.endTime,
   }, session);
+}
+
+export async function createInstructorAvailabilityOverride(payload) {
+  const session = getCurrentSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_availability_overrides' };
+
+  return insertTable('instructor_availability_overrides', {
+    instructor_id: payload.instructorId,
+    override_date: payload.date,
+    start_time: payload.startTime,
+    end_time: payload.endTime,
+    is_available: Boolean(payload.isAvailable),
+  }, session);
+}
+
+export async function updateInstructorAvailabilityOverride(id, payload) {
+  const session = getCurrentSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_availability_overrides' };
+
+  return updateTable('instructor_availability_overrides', id, {
+    start_time: payload.startTime,
+    end_time: payload.endTime,
+    is_available: Boolean(payload.isAvailable),
+  }, session);
+}
+
+export async function deleteInstructorAvailabilityOverride(id) {
+  const session = getCurrentSession();
+  if (!session) return { error: 'auth_required', tableName: 'instructor_availability_overrides' };
+
+  return deleteTable('instructor_availability_overrides', { id: `eq.${id}` }, session);
 }
 
 export async function fetchPosts() {
@@ -1112,6 +1160,9 @@ export async function submitBookingRequest(payload) {
   const session = await getActiveSession();
   if (!session) return { data: null, error: 'auth_required', tableName: 'bookings' };
 
+  const availabilityResult = await validateBookingAvailability(payload, session);
+  if (availabilityResult.error) return availabilityResult;
+
   const instructorUserId = await fetchServiceInstructorUserId(payload.serviceId, session);
   const conversationResult = instructorUserId
     ? await ensureDirectConversationWithUser(instructorUserId)
@@ -1181,6 +1232,66 @@ export async function submitBookingRequest(payload) {
     error: null,
     tableName: 'bookings',
   };
+}
+
+async function validateBookingAvailability(payload, session) {
+  const serviceResult = await queryTable('instructor_services', {
+    select: 'id,instructor_id',
+    id: `eq.${payload.serviceId}`,
+    limit: '1',
+  }, session);
+  const service = serviceResult.data?.[0];
+  if (serviceResult.error || !service?.instructor_id) {
+    return { data: null, error: serviceResult.error || 'service_not_found', tableName: 'instructor_services' };
+  }
+
+  const lessonDate = payload.lessonDate || '';
+  const startTime = formatTime(payload.startTime);
+  const endTime = addHoursToTime(startTime, Math.max(Number(payload.durationHours) || 1, 1));
+  if (!lessonDate || !startTime || !endTime) return { data: null, error: 'invalid_booking_time', tableName: 'bookings' };
+
+  const [availabilityResult, overridesResult, busyResult] = await Promise.all([
+    queryTable('instructor_availability', {
+      select: '*',
+      instructor_id: `eq.${service.instructor_id}`,
+      is_active: 'eq.true',
+      order: 'day_of_week.asc,start_time.asc',
+    }, session),
+    queryTable('instructor_availability_overrides', {
+      select: '*',
+      instructor_id: `eq.${service.instructor_id}`,
+      override_date: `eq.${lessonDate}`,
+      order: 'start_time.asc',
+    }, session),
+    queryTable('public_booking_busy_slots', {
+      select: '*',
+      service_id: `eq.${payload.serviceId}`,
+      lesson_date: `eq.${lessonDate}`,
+      order: 'start_time_utc.asc',
+    }, session),
+  ]);
+
+  if (availabilityResult.error || overridesResult.error || busyResult.error) {
+    return {
+      data: null,
+      error: availabilityResult.error || overridesResult.error || busyResult.error,
+      tableName: availabilityResult.tableName || overridesResult.tableName || busyResult.tableName || 'bookings',
+    };
+  }
+
+  const effectiveWindows = getEffectiveAvailabilityForDate(
+    (availabilityResult.data || []).map((row) => normalizeAvailability(row)),
+    (overridesResult.data || []).map((row) => normalizeAvailabilityOverride(row)),
+    lessonDate,
+  );
+  const containingWindow = effectiveWindows.some((window) => startTime >= window.startTime && endTime <= window.endTime);
+  if (!containingWindow) return { data: null, error: 'slot_unavailable', tableName: 'bookings' };
+
+  const busySlots = (busyResult.data || []).map((row) => normalizeSearchBooking(row));
+  const hasConflict = busySlots.some((slot) => ACTIVE_BOOKING_STATUSES_FOR_VALIDATION.has(String(slot.status || '')) && timeRangesOverlap(startTime, endTime, slot.startTime, slot.endTime));
+  if (hasConflict) return { data: null, error: 'slot_unavailable', tableName: 'bookings' };
+
+  return { data: null, error: null, tableName: 'bookings' };
 }
 
 async function insertBookingRequestMessage({ booking, conversationId, payload, requestMessage, session }) {
@@ -1425,6 +1536,7 @@ function normalizeAvailability(row) {
 function normalizeAvailabilityOverride(row) {
   return {
     id: row.id,
+    instructorId: row.instructor_id || '',
     date: row.date || row.override_date || '',
     startTime: formatTime(row.start_time),
     endTime: formatTime(row.end_time),
@@ -2620,6 +2732,48 @@ function addHoursToTime(value, hours) {
   const hour = Math.floor(totalMinutes / 60) % 24;
   const minute = totalMinutes % 60;
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function getEffectiveAvailabilityForDate(availability, overrides, date) {
+  const day = new Date(`${date}T00:00:00`).getDay();
+  const recurring = (availability || [])
+    .filter((window) => Number(window.dayOfWeek) === day)
+    .map((window) => ({ ...window, source: 'recurring' }));
+  const dateOverrides = (overrides || []).filter((override) => override.date === date);
+  const extraOpen = dateOverrides
+    .filter((override) => override.isAvailable)
+    .map((override) => ({ ...override, source: 'override' }));
+  const unavailable = dateOverrides.filter((override) => !override.isAvailable);
+
+  return subtractUnavailableWindows([...recurring, ...extraOpen], unavailable)
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime));
+}
+
+function subtractUnavailableWindows(windows, unavailableWindows) {
+  let result = (windows || []).filter((window) => window.startTime && window.endTime && window.startTime < window.endTime);
+
+  (unavailableWindows || []).forEach((block) => {
+    result = result.flatMap((window) => subtractWindow(window, block));
+  });
+
+  return result;
+}
+
+function subtractWindow(window, block) {
+  if (!timeRangesOverlap(window.startTime, window.endTime, block.startTime, block.endTime)) return [window];
+
+  const segments = [];
+  if (window.startTime < block.startTime) {
+    segments.push({ ...window, id: `${window.id || 'window'}-before-${block.id || block.startTime}`, endTime: block.startTime });
+  }
+  if (block.endTime < window.endTime) {
+    segments.push({ ...window, id: `${window.id || 'window'}-after-${block.id || block.endTime}`, startTime: block.endTime });
+  }
+  return segments.filter((segment) => segment.startTime < segment.endTime);
+}
+
+function timeRangesOverlap(startA, endA, startB, endB) {
+  return startA < endB && startB < endA;
 }
 
 function formatWeekday(value) {

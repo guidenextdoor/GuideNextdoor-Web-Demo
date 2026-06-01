@@ -442,7 +442,8 @@
       "eyebrow": "Offer catalog",
       "title": "Services",
       "subtitle": "Manage the coaching services learners can request from your public profile.",
-      "addService": "Add service"
+      "addService": "Add service",
+      "confirmDelete": "Delete this service?"
     },
     "messages": {
       "eyebrow": "Inbox",
@@ -454,8 +455,8 @@
     },
     "schedule": {
       "eyebrow": "Instructor schedule",
-      "title": "Availability",
-      "subtitle": "Manage recurring weekly windows and see pending or confirmed bookings that block learner calendar slots.",
+      "title": "Schedule & Offerings",
+      "subtitle": "Manage booking requests, availability windows, and the services learners can request from your public profile.",
       "month": "Month",
       "calendarHint": "White windows are open availability. Red blocks are pending or confirmed bookings.",
       "recurring": "Recurring availability",
@@ -497,8 +498,12 @@
       "saveFailed": "Could not save this availability window.",
       "deleteFailed": "Could not delete this availability window.",
       "updateFailed": "Could not update this availability window.",
+      "overrideSaveFailed": "Could not save this date exception.",
+      "overrideDeleteFailed": "Could not delete this date exception.",
       "saved": "Availability window saved.",
       "updated": "Availability window updated.",
+      "overrideSaved": "Date exception saved.",
+      "overrideDeleted": "Date exception deleted.",
       "deleted": "Availability window deleted.",
       "quickBreak": "Quick Break",
       "onBreak": "On Break",

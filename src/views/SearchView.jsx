@@ -252,7 +252,11 @@ function getAvailabilityState(service, filters) {
   }
 
   const day = new Date(`${filters.date}T00:00:00`).getDay();
-  const windows = service.availability.filter((window) => Number(window.dayOfWeek) === day);
+  const recurringWindows = service.availability.filter((window) => Number(window.dayOfWeek) === day);
+  const windows = getEffectiveAvailabilityForDate(
+    recurringWindows,
+    (service.availabilityOverrides || []).filter((override) => override.date === filters.date),
+  );
   const activeBookings = service.bookedSlots.filter((booking) => (
     booking.lessonDate === filters.date
     && ACTIVE_BOOKING_STATUSES.has(booking.status)
@@ -284,6 +288,25 @@ function getAvailabilityState(service, filters) {
     dateLabel: formatDate(filters.date),
     timeLabel: filters.time,
   };
+}
+
+function getEffectiveAvailabilityForDate(recurring, overrides) {
+  const extraOpen = (overrides || []).filter((override) => override.isAvailable);
+  const unavailable = (overrides || []).filter((override) => !override.isAvailable);
+  let windows = [...(recurring || []), ...extraOpen]
+    .filter((window) => window.startTime && window.endTime && window.startTime < window.endTime);
+
+  unavailable.forEach((block) => {
+    windows = windows.flatMap((window) => {
+      if (!timeRangesOverlap(window.startTime, window.endTime, block.startTime, block.endTime)) return [window];
+      const segments = [];
+      if (window.startTime < block.startTime) segments.push({ ...window, endTime: block.startTime });
+      if (block.endTime < window.endTime) segments.push({ ...window, startTime: block.endTime });
+      return segments.filter((segment) => segment.startTime < segment.endTime);
+    });
+  });
+
+  return windows.sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime));
 }
 
 function availabilityRank(status) {

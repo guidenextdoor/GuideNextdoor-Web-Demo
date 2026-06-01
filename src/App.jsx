@@ -15,9 +15,7 @@ import LoginView from './views/LoginView';
 import MessagesView from './views/MessagesView';
 import DashboardView from './views/instructor/DashboardView';
 import InstructorOverview from './views/instructor/InstructorOverview';
-import InstructorBookings from './views/instructor/InstructorBookings';
 import InstructorMessages from './views/instructor/InstructorMessages';
-import InstructorServices from './views/instructor/InstructorServices';
 import InstructorSchedule from './views/instructor/InstructorSchedule';
 import InstructorPosts from './views/instructor/InstructorPosts';
 import InstructorAbout from './views/instructor/InstructorAbout';
@@ -69,9 +67,9 @@ function LanguageWrapper() {
                 {/* Instructor Dashboard */}
                 <Route path="/instructor" element={<DashboardView />}>
                   <Route index element={<InstructorOverview />} />
-                  <Route path="bookings" element={<InstructorBookings />} />
+                  <Route path="bookings" element={<Navigate to={`/${lang}/instructor/schedule`} replace />} />
                   <Route path="messages" element={<InstructorMessages />} />
-                  <Route path="services" element={<InstructorServices />} />
+                  <Route path="services" element={<Navigate to={`/${lang}/instructor/schedule`} replace />} />
                   <Route path="schedule" element={<InstructorSchedule />} />
                   <Route path="posts" element={<InstructorPosts />} />
                   <Route path="profile" element={<InstructorAbout />} />
