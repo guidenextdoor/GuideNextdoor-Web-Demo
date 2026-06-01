@@ -48,7 +48,7 @@ export default function InstructorOverview() {
     >
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label={t('profile.stats.reviews')} value={stats.reviewCount || 0} icon={Star} subValue={stats.averageRating ? stats.averageRating.toFixed(1) : '0.0'} color="text-yellow-500" />
-        <StatCard label={t('profile.stats.sessions')} value={stats.sessionCount || 0} icon={Calendar} color="text-blue-500" />
+        <StatCard label={t('profile.stats.sessions')} value={stats.completedSessionCount || 0} icon={Calendar} color="text-blue-500" />
         
         <button 
           onClick={() => setShowEarningModal(true)}

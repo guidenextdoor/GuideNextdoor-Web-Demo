@@ -332,7 +332,7 @@
       "credentialName": "Credential or qualification",
       "credentialPlaceholder": "Select a qualification...",
       "credentialSearch": "Search qualifications...",
-      "noCredentials": "No verified credentials found for this activity.",
+      "noCredentials": "No qualifications found for this activity.",
       "attainmentYear": "Credential attainment year",
       "certificatePhoto": "Certificate photo",
       "certificateAction": "Upload or take a certificate photo",

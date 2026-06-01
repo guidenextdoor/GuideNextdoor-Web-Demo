@@ -32,7 +32,7 @@ export default function InstructorBookings() {
     { key: 'All', label: 'All Sessions', count: state.data.length, icon: CalendarDays, color: 'text-gnd-dark' },
     { key: 'Confirmed', label: t('workspace.sessions.confirmed'), count: state.stats.confirmedSessionCount || 0, icon: Clock, color: 'text-green-600' },
     { key: 'Pending', label: t('workspace.sessions.pending'), count: state.stats.pendingSessionCount || 0, icon: Inbox, color: 'text-amber-500' },
-    { key: 'Completed', label: t('workspace.sessions.completed'), count: (state.stats.completedSessionCount || 0) + (state.data.filter(b => b.status === 'Cancelled').length), icon: CalendarDays, color: 'text-blue-500' },
+    { key: 'Completed', label: t('workspace.sessions.completed'), count: state.stats.completedSessionCount || 0, icon: CalendarDays, color: 'text-blue-500' },
   ];
 
   return (
