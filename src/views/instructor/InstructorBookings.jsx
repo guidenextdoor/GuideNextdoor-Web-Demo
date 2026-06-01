@@ -26,7 +26,10 @@ export default function InstructorBookings() {
 
   const filteredData = filter === 'All' 
     ? state.data 
-    : state.data.filter(b => b.status === filter);
+    : state.data.filter(b => {
+        if (filter === 'Pending') return String(b.status || '').startsWith('Pending');
+        return b.status === filter;
+      });
 
   const filterConfigs = [
     { key: 'All', label: 'All Sessions', count: state.data.length, icon: CalendarDays, color: 'text-gnd-dark' },

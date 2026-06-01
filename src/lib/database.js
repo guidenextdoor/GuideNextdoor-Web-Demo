@@ -887,7 +887,7 @@ async function fetchInstructorServiceBookings(services, session = null) {
   return queryTable('bookings', {
     select: '*,users(id,display_name,nickname,avatar_url,username,email),messages(*)',
     service_id: `in.(${serviceIds.join(',')})`,
-    order: 'lesson_date.asc,start_time_utc.asc',
+    order: 'lesson_date.desc,start_time_utc.desc',
     limit: '240',
   }, session);
 }
@@ -1493,7 +1493,7 @@ function buildInstructorStats(coach, services, posts, reviews, bookedSlots = [])
     averageRating,
     sessionCount: coach.providedSessionsCount || 0,
     completedSessionCount: completedBookings.length,
-    pendingSessionCount: bookedSlots.filter((booking) => booking.status === 'Pending').length,
+    pendingSessionCount: bookedSlots.filter((booking) => String(booking.status || '').startsWith('Pending')).length,
     confirmedSessionCount: bookedSlots.filter((booking) => booking.status === 'Confirmed').length,
     earningsThisMonth,
     totalEarnings,
@@ -2599,7 +2599,7 @@ export async function fetchRefActivities() {
 
 export async function fetchRefQualifications() {
   return queryTable('ref_qualifications', {
-    select: '*',
+    select: 'id,activity_id,qualification_name',
     order: 'qualification_name.asc',
   });
 }

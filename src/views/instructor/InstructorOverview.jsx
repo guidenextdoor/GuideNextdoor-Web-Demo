@@ -37,8 +37,14 @@ export default function InstructorOverview() {
   const stats = state.data?.coach?.stats || {};
   const today = toDateInputValue(new Date());
   const allBookings = state.data?.bookedSlots || [];
-  const upcomingBookings = allBookings.filter(b => b.status === 'Confirmed' && b.lessonDate >= today).slice(0, 3);
-  const pendingBookings = allBookings.filter(b => String(b.status || '').startsWith('Pending') && b.lessonDate >= today).slice(0, 3);
+  const upcomingBookings = allBookings
+    .filter(b => b.status === 'Confirmed' && b.lessonDate >= today)
+    .sort((a, b) => a.lessonDate.localeCompare(b.lessonDate) || a.startTime.localeCompare(b.startTime))
+    .slice(0, 3);
+  const pendingBookings = allBookings
+    .filter(b => String(b.status || '').startsWith('Pending') && b.lessonDate >= today)
+    .sort((a, b) => a.lessonDate.localeCompare(b.lessonDate) || a.startTime.localeCompare(b.startTime))
+    .slice(0, 3);
 
   return (
     <InstructorDashboardLayout
