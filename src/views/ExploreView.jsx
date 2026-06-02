@@ -213,39 +213,41 @@ function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
 
       </div>
       <div className="p-3">
-        <Link to={profilePath} className="mb-2 flex w-full items-center gap-2 text-left">
-          <img src={post.avatarUrl || imageUrls[0]} alt="" className="h-9 w-9 rounded-full object-cover" />
-          <div className="min-w-0 flex-1">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <Link to={profilePath} className="flex min-w-0 items-center gap-2">
+            <img src={post.avatarUrl || imageUrls[0]} alt="" className="h-7 w-7 rounded-full object-cover" />
             <h3 className="truncate text-sm font-black">{post.coachName}</h3>
-            <p className="mt-0.5 flex h-4 items-center gap-1 truncate text-xs font-bold text-gnd-gray">
-              {post.location && (
-                <>
-                  <MapPin size={12} />
-                  <span className="truncate">{post.location}</span>
-                </>
-              )}
-            </p>
+          </Link>
+          <div className="flex shrink-0 items-center gap-2.5 text-gnd-gray">
+            <button type="button" className={`flex items-center gap-1 text-xs font-black ${post.liked ? 'text-gnd-red' : ''}`} onClick={onLike}>
+              <Heart size={14} className={post.liked ? 'fill-gnd-red text-gnd-red' : 'text-gnd-red'} />
+              {post.likes}
+            </button>
+            <span className="flex items-center gap-1 text-xs font-black" aria-label="comments">
+              <MessageCircle size={14} />
+              {post.comments}
+            </span>
+            <button type="button" className={post.saved ? 'text-gnd-red' : ''} onClick={onSave} aria-label="save post">
+              <Bookmark size={14} className={post.saved ? 'fill-current' : ''} />
+            </button>
           </div>
-        </Link>
-        <div className="flex items-center gap-2">
-          <button type="button" className="line-clamp-1 flex-1 text-left text-sm font-semibold leading-5 text-gnd-dark" onClick={onOpen}>
-            {post.caption || post.title}
-          </button>
-          {post.displayDate && <span className="shrink-0 text-xs font-black text-gnd-gray">{post.displayDate}</span>}
         </div>
-        <div className="mt-3 flex items-center justify-between text-gnd-gray">
-          <button type="button" className={`flex items-center gap-1 text-sm font-black ${post.liked ? 'text-gnd-red' : ''}`} onClick={onLike}>
-            <Heart size={17} className={post.liked ? 'fill-gnd-red text-gnd-red' : 'text-gnd-red'} />
-            {post.likes}
-          </button>
-          <span className="flex items-center gap-1 text-sm font-black" aria-label="comments">
-            <MessageCircle size={17} />
-            {post.comments}
-          </span>
-          <button type="button" className={post.saved ? 'text-gnd-red' : ''} onClick={onSave} aria-label="save post">
-            <Bookmark size={17} className={post.saved ? 'fill-current' : ''} />
-          </button>
+
+        <div className="mb-2 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gnd-gray">
+          <div className="flex min-w-0 items-center gap-1">
+            {post.location && (
+              <>
+                <MapPin size={10} />
+                <span className="truncate">{post.location}</span>
+              </>
+            )}
+          </div>
+          {post.displayDate && <span className="shrink-0">{post.displayDate}</span>}
         </div>
+
+        <button type="button" className="line-clamp-2 w-full text-left text-sm font-semibold leading-5 text-gnd-dark" onClick={onOpen}>
+          {post.caption || post.title}
+        </button>
       </div>
     </article>
   );
