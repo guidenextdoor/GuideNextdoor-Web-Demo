@@ -36,7 +36,7 @@ export default function PostDetailModal({ post, onClose, onLike, onSave, profile
     setSubmitting(true);
     const result = await createPostComment(post.id, newComment);
     if (result.error) {
-      alert(result.error === 'auth_required' ? t('explore.loginRequired') : 'Failed to post comment.');
+      alert(result.error === 'auth_required' ? t('explore.loginRequired') : formatCommentError(result.error));
     } else {
       setNewComment('');
       // Refresh comments
@@ -239,4 +239,11 @@ export default function PostDetailModal({ post, onClose, onLike, onSave, profile
       </motion.article>
     </div>
   );
+}
+
+function formatCommentError(error) {
+  if (error === 'staff_account_restricted') {
+    return 'Staff accounts cannot comment on public posts.';
+  }
+  return 'Failed to post comment.';
 }

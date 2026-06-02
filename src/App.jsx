@@ -13,12 +13,14 @@ import GuideProfileView from './views/GuideProfileView';
 import BecomeGuideView from './views/BecomeGuideView';
 import LoginView from './views/LoginView';
 import MessagesView from './views/MessagesView';
+import AccountProfileView from './views/AccountProfileView';
 import DashboardView from './views/instructor/DashboardView';
 import InstructorOverview from './views/instructor/InstructorOverview';
 import InstructorMessages from './views/instructor/InstructorMessages';
 import InstructorSchedule from './views/instructor/InstructorSchedule';
 import InstructorPosts from './views/instructor/InstructorPosts';
 import InstructorAbout from './views/instructor/InstructorAbout';
+import StaffDashboardView from './views/staff/StaffDashboardView';
 
 const supportedLangs = ['en'];
 
@@ -62,7 +64,9 @@ function LanguageWrapper() {
                 <Route path="/guide/:id" element={<GuideProfileView />} />
                 <Route path="/become-guide" element={<BecomeGuideView />} />
                 <Route path="/login" element={<LoginView />} />
+                <Route path="/profile" element={<AccountProfileView />} />
                 <Route path="/messages" element={<MessagesView />} />
+                <Route path="/staff" element={<StaffDashboardView />} />
                 
                 {/* Instructor Dashboard */}
                 <Route path="/instructor" element={<DashboardView />}>

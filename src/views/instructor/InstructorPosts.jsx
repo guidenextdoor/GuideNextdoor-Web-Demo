@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Image as ImageIcon, Inbox, PlusSquare, MapPin, Heart, MessageCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { motion, AnimatePresence } from 'framer-motion';
 import { fetchInstructorSchedule, togglePostLike, toggleSavedPost } from '../../lib/database';
+import { buildLoginRedirectPath } from '../../lib/navigation';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
+import AuthActionNotice from '../../components/AuthActionNotice';
 import CreatePostModal from '../../components/CreatePostModal';
 import PostDetailModal from '../../components/PostDetailModal';
 
 export default function InstructorPosts() {
   const { t, i18n } = useTranslation();
+  const location = useLocation();
   const [state, setState] = useState({ loading: true, data: null, error: null });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState(null);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(null);
 
   async function loadPosts() {
     setState(prev => ({ ...prev, loading: true }));
@@ -25,13 +28,25 @@ export default function InstructorPosts() {
   }
 
   useEffect(() => {
-    loadPosts();
+    let cancelled = false;
+    fetchInstructorSchedule().then((result) => {
+      if (cancelled) return;
+      setState({
+        loading: false,
+        data: result.data || null,
+        error: result.error
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const posts = state.data?.posts || [];
   const coach = state.data?.coach || {};
   const totalPosts = posts.length;
   const totalLikes = posts.reduce((sum, post) => sum + (post.likes || 0), 0);
+  const loginPath = buildLoginRedirectPath(i18n.language, location);
 
   const selectedPost = posts.find((p) => p.id === selectedPostId);
 
@@ -72,7 +87,9 @@ export default function InstructorPosts() {
         liked: post.liked,
         likes: post.likes,
       }));
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : 'Interaction failed.');
+      setNotice(result.error === 'auth_required'
+        ? { message: t('explore.loginRequired'), requiresLogin: true }
+        : { message: formatInteractionError(result.error) });
     }
   };
 
@@ -83,7 +100,9 @@ export default function InstructorPosts() {
     const result = await toggleSavedPost(post);
     if (result.error) {
       updatePost(post.id, (current) => ({ ...current, saved: post.saved }));
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : 'Interaction failed.');
+      setNotice(result.error === 'auth_required'
+        ? { message: t('explore.loginRequired'), requiresLogin: true }
+        : { message: formatInteractionError(result.error) });
     }
   };
 
@@ -197,12 +216,7 @@ export default function InstructorPosts() {
         />
       )}
 
-      {notice && (
-        <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-gnd-dark px-5 py-3 text-sm font-bold text-white shadow-2xl">
-          {notice}
-          <button type="button" className="ml-3 text-white/70" onClick={() => setNotice('')}>{t('explore.dismiss')}</button>
-        </div>
-      )}
+      <AuthActionNotice notice={notice} onDismiss={() => setNotice(null)} loginPath={loginPath} t={t} />
     </InstructorDashboardLayout>
   );
 }
@@ -253,4 +267,11 @@ function InstructorPostCard({ post, t, onOpen }) {
       </div>
     </article>
   );
+}
+
+function formatInteractionError(error) {
+  if (error === 'staff_account_restricted') {
+    return 'Staff accounts cannot like or save public posts.';
+  }
+  return 'Interaction failed.';
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Award,
   Bookmark,
@@ -21,12 +21,15 @@ import {
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { fetchInstructorProfile, submitBookingRequest, togglePostLike, toggleSavedPost } from '../lib/database';
+import { buildLoginRedirectPath } from '../lib/navigation';
+import AuthActionNotice from '../components/AuthActionNotice';
 
 const tabs = ['posts', 'credentials', 'sessions', 'reviews'];
 
 export default function GuideProfileView() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const [state, setState] = useState({ loading: true, coach: null, error: null });
@@ -35,7 +38,7 @@ export default function GuideProfileView() {
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [selectedCert, setSelectedCert] = useState(null);
   const [bookingServiceId, setBookingServiceId] = useState(null);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(null);
   const [shouldScrollToSessions, setShouldScrollToSessions] = useState(false);
   const sessionsSectionRef = useRef(null);
 
@@ -103,6 +106,7 @@ export default function GuideProfileView() {
   const coverImage = coach.coverPhotoUrl || coach.avatarUrl;
   const selectedPost = coach.posts.find((post) => post.id === selectedPostId);
   const bookingService = coach.services.find((service) => service.id === bookingServiceId);
+  const loginPath = buildLoginRedirectPath(i18n.language, location);
 
   const showSessions = () => {
     setActiveTab('sessions');
@@ -144,8 +148,9 @@ export default function GuideProfileView() {
 
     if (result.error) {
       updatePost(post.id, () => post);
-      const errorMsg = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : `${t('explore.interactionFailed')} (${errorMsg})`);
+      setNotice(result.error === 'auth_required'
+        ? { message: t('explore.loginRequired'), requiresLogin: true }
+        : { message: formatInteractionError(result.error, t) });
     }
   };
 
@@ -156,8 +161,9 @@ export default function GuideProfileView() {
     const result = await toggleSavedPost(post);
     if (result.error) {
       updatePost(post.id, () => post);
-      const errorMsg = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : `${t('explore.interactionFailed')} (${errorMsg})`);
+      setNotice(result.error === 'auth_required'
+        ? { message: t('explore.loginRequired'), requiresLogin: true }
+        : { message: formatInteractionError(result.error, t) });
     }
   };
 
@@ -281,12 +287,7 @@ export default function GuideProfileView() {
        {activeTab === 'reviews' && <ReviewsTab coach={coach} t={t} />}
       </div>
 
-      {notice && (
-       <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-gnd-dark px-5 py-3 text-sm font-bold text-white shadow-2xl">
-         {notice}
-         <button type="button" className="ml-3 text-white/70" onClick={() => setNotice('')}>{t('explore.dismiss')}</button>
-       </div>
-      )}
+      <AuthActionNotice notice={notice} onDismiss={() => setNotice(null)} loginPath={loginPath} t={t} />
 
       {selectedCert && (
        <CertificateModal
@@ -317,7 +318,7 @@ export default function GuideProfileView() {
           onClose={() => setBookingServiceId(null)}
           onSubmitted={(submission) => {
             setBookingServiceId(null);
-            setNotice(t('profile.booking.success'));
+            setNotice({ message: t('profile.booking.success') });
             const messageTarget = submission?.messageTarget || coach.username;
             navigate(messageTarget ? `/${i18n.language}/messages?user=${encodeURIComponent(messageTarget)}` : `/${i18n.language}/messages`);
           }}
@@ -725,7 +726,7 @@ function BookingRequestModal({ coach, service, onClose, onSubmitted, t }) {
         saving: false,
         error: result.error === 'auth_required'
           ? t('profile.booking.loginRequired')
-          : `${t('profile.booking.submitFailed')} ${formatTechnicalError(result.error)}`,
+          : formatBookingError(result.error, t),
       });
       return;
     }
@@ -1043,6 +1044,20 @@ function formatTechnicalError(error) {
   } catch {
     return `(${text.slice(0, 180)})`;
   }
+}
+
+function formatInteractionError(error, t) {
+  if (error === 'staff_account_restricted') {
+    return 'Staff accounts cannot like or save public posts.';
+  }
+  return `${t('explore.interactionFailed')} ${formatTechnicalError(error)}`;
+}
+
+function formatBookingError(error, t) {
+  if (error === 'staff_account_restricted') {
+    return 'Staff accounts cannot book classes. Please use a learner account for bookings.';
+  }
+  return `${t('profile.booking.submitFailed')} ${formatTechnicalError(error)}`;
 }
 
 function formatCurrency(value, currency) {

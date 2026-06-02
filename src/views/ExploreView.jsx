@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Bookmark, Heart, MapPin, MessageCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchPosts, togglePostLike, toggleSavedPost } from '../lib/database';
+import { buildLoginRedirectPath } from '../lib/navigation';
+import AuthActionNotice from '../components/AuthActionNotice';
 import PostDetailModal from '../components/PostDetailModal';
 
 const fallbackImages = [
@@ -15,11 +17,12 @@ const fallbackImages = [
 
 export default function ExploreView() {
   const { t, i18n } = useTranslation();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
   const [postState, setPostState] = useState({ loading: true, data: [], error: null });
   const [selectedPostId, setSelectedPostId] = useState(null);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(null);
 
   useEffect(() => {
     const nextParams = {};
@@ -48,6 +51,7 @@ export default function ExploreView() {
     });
   }, [postState.data, query]);
   const selectedPost = postState.data.find((post) => post.id === selectedPostId);
+  const loginPath = buildLoginRedirectPath(i18n.language, location);
 
   const updatePost = (postId, updater) => {
     setPostState((current) => ({
@@ -80,8 +84,9 @@ export default function ExploreView() {
         liked: post.liked,
         likes: post.likes,
       }));
-      const errorMsg = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : `${t('explore.interactionFailed')} (${errorMsg})`);
+      setNotice(result.error === 'auth_required'
+        ? { message: t('explore.loginRequired'), requiresLogin: true }
+        : { message: formatInteractionError(result.error, t) });
     }
   };
 
@@ -92,8 +97,9 @@ export default function ExploreView() {
     const result = await toggleSavedPost(post);
     if (result.error) {
       updatePost(post.id, (current) => ({ ...current, saved: post.saved }));
-      const errorMsg = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
-      setNotice(result.error === 'auth_required' ? t('explore.loginRequired') : `${t('explore.interactionFailed')} (${errorMsg})`);
+      setNotice(result.error === 'auth_required'
+        ? { message: t('explore.loginRequired'), requiresLogin: true }
+        : { message: formatInteractionError(result.error, t) });
     }
   };
 
@@ -147,12 +153,7 @@ export default function ExploreView() {
         </div>
       )}
 
-      {notice && (
-        <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-gnd-dark px-5 py-3 text-sm font-bold text-white shadow-2xl">
-          {notice}
-          <button type="button" className="ml-3 text-white/70" onClick={() => setNotice('')}>{t('explore.dismiss')}</button>
-        </div>
-      )}
+      <AuthActionNotice notice={notice} onDismiss={() => setNotice(null)} loginPath={loginPath} t={t} />
 
       {selectedPost && (
         <PostDetailModal
@@ -258,4 +259,12 @@ function PostSkeleton() {
       <div className="mt-3 h-3 w-full animate-pulse rounded bg-gnd-cream" />
     </div>
   );
+}
+
+function formatInteractionError(error, t) {
+  if (error === 'staff_account_restricted') {
+    return 'Staff accounts cannot like or save public posts.';
+  }
+  const errorMsg = typeof error === 'string' ? error : JSON.stringify(error);
+  return `${t('explore.interactionFailed')} (${errorMsg})`;
 }

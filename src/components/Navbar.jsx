@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, Search, X } from 'lucide-react';
+import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, Search, UserCircle, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { fetchCurrentInstructorProfile, getCurrentSession, signOut } from '../lib/database';
 
@@ -11,6 +11,7 @@ const publicNavItems = [
 ];
 
 const instructorNavItem = { key: 'instructor', path: 'instructor', icon: LayoutDashboard };
+const profileNavItem = { key: 'profile', path: 'profile', icon: UserCircle };
 
 export default function Navbar() {
   const { t, i18n } = useTranslation();
@@ -68,7 +69,11 @@ export default function Navbar() {
     navigate(toPath('login'));
   };
 
-  const visibleNavItems = hasInstructorProfile ? [...publicNavItems, instructorNavItem] : publicNavItems;
+  const visibleNavItems = [
+    ...publicNavItems,
+    ...(session ? [profileNavItem] : []),
+    ...(hasInstructorProfile ? [instructorNavItem] : []),
+  ];
 
   return (
     <>
