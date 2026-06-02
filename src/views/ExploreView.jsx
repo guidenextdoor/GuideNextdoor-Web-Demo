@@ -219,15 +219,15 @@ function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
             <h3 className="truncate text-sm font-black">{post.coachName}</h3>
           </Link>
           <div className="flex shrink-0 items-center gap-2.5 text-gnd-gray">
-            <button type="button" className={`flex items-center gap-1 text-xs font-bold ${post.liked ? 'text-gnd-red' : ''}`} onClick={onLike}>
-              <Heart size={14} className={post.liked ? 'fill-gnd-red text-gnd-red' : 'text-gnd-red'} />
+            <button type="button" className="flex items-center gap-1 text-xs font-bold transition hover:text-gnd-red" onClick={onLike}>
+              <Heart size={14} className={post.liked ? 'fill-gnd-red text-gnd-red' : ''} />
               {post.likes}
             </button>
             <span className="flex items-center gap-1 text-xs font-bold" aria-label="comments">
               <MessageCircle size={14} />
               {post.comments}
             </span>
-            <button type="button" className={post.saved ? 'text-gnd-red' : ''} onClick={onSave} aria-label="save post">
+            <button type="button" className={`transition hover:text-gnd-red ${post.saved ? 'text-gnd-red' : ''}`} onClick={onSave} aria-label="save post">
               <Bookmark size={14} className={post.saved ? 'fill-current' : ''} />
             </button>
           </div>
