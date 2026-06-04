@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Heart, MessageCircle, MessageSquare, Bookmark, MapPin, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Flag, Heart, MessageCircle, MessageSquare, Bookmark, MapPin, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchPostComments, createPostComment } from '../lib/database';
 
@@ -11,7 +11,7 @@ const fallbackImages = [
   'https://images.unsplash.com/photo-1517649763962-0c623066013b?auto=format&fit=crop&w=1000&q=80',
 ];
 
-export default function PostDetailModal({ post, onClose, onLike, onSave, profilePath, messagePath, t }) {
+export default function PostDetailModal({ post, onClose, onLike, onSave, onReport, profilePath, messagePath, t }) {
   const imageUrls = post.imageUrls?.length > 0 ? post.imageUrls : [post.imageUrl || fallbackImages[0]];
   const [imgIndex, setImgIndex] = useState(0);
   const [comments, setComments] = useState([]);
@@ -112,9 +112,14 @@ export default function PostDetailModal({ post, onClose, onLike, onSave, profile
                 </p>
               </div>
             </Link>
-            <button type="button" className="rounded-full bg-gnd-cream p-1 md:p-1.5 transition hover:bg-gnd-red hover:text-white" onClick={onClose} aria-label={t('explore.closePost')}>
-              <X size={14} className="md:w-[18px] md:h-[18px]" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button type="button" className="rounded-full bg-gnd-cream p-1 md:p-1.5 transition hover:bg-gnd-red hover:text-white" onClick={() => onReport?.(buildPostReportTarget(post))} aria-label="Report post">
+                <Flag size={14} className="md:w-[18px] md:h-[18px]" />
+              </button>
+              <button type="button" className="rounded-full bg-gnd-cream p-1 md:p-1.5 transition hover:bg-gnd-red hover:text-white" onClick={onClose} aria-label={t('explore.closePost')}>
+                <X size={14} className="md:w-[18px] md:h-[18px]" />
+              </button>
+            </div>
           </header>
 
           {/* Scrollable Content (Caption + Comments) */}
@@ -160,9 +165,10 @@ export default function PostDetailModal({ post, onClose, onLike, onSave, profile
                         <span className="font-black mr-2">{comment.userName}</span>
                         {comment.body}
                       </p>
-                      <p className="mt-1 text-[8px] md:text-[10px] font-bold text-gnd-gray uppercase tracking-wider">
-                        {comment.displayDate}
-                      </p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <p className="text-[8px] md:text-[10px] font-bold text-gnd-gray uppercase tracking-wider">{comment.displayDate}</p>
+                        <button type="button" onClick={() => onReport?.(buildCommentReportTarget(comment, post))} className="text-[8px] font-black uppercase tracking-widest text-gnd-gray hover:text-gnd-red">Report</button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -241,9 +247,42 @@ export default function PostDetailModal({ post, onClose, onLike, onSave, profile
   );
 }
 
+function buildPostReportTarget(post) {
+  return {
+    title: 'Report post',
+    targetType: 'post',
+    targetId: post.id,
+    reportedUserId: post.authorUserId,
+    evidenceMetadata: {
+      post_id: post.id,
+      instructor_id: post.instructorId,
+      caption: post.caption || post.title || '',
+      author_name: post.coachName || '',
+    },
+  };
+}
+
+function buildCommentReportTarget(comment, post) {
+  return {
+    title: 'Report comment',
+    targetType: 'comment',
+    targetId: comment.id,
+    reportedUserId: comment.userId,
+    evidenceMetadata: {
+      comment_id: comment.id,
+      post_id: post.id,
+      body: comment.body || '',
+      author_name: comment.userName || '',
+    },
+  };
+}
+
 function formatCommentError(error) {
   if (error === 'staff_account_restricted') {
     return 'Staff accounts cannot comment on public posts.';
+  }
+  if (error === 'account_suspended') {
+    return 'Your account is currently read-only. You can still browse and contact GuideNextdoor support.';
   }
   return 'Failed to post comment.';
 }

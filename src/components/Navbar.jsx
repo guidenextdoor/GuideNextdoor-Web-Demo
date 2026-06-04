@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, Search, UserCircle, X } from 'lucide-react';
+import { Compass, Globe2, LayoutDashboard, LogIn, LogOut, Menu, Search, Shield, UserCircle, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { fetchCurrentInstructorProfile, getCurrentSession, signOut } from '../lib/database';
+import { fetchCurrentInstructorProfile, fetchCurrentStaffContext, getCurrentSession, signOut } from '../lib/database';
 
 const publicNavItems = [
   { key: 'home', path: '', icon: LayoutDashboard },
@@ -12,11 +12,13 @@ const publicNavItems = [
 
 const instructorNavItem = { key: 'instructor', path: 'instructor', icon: LayoutDashboard };
 const profileNavItem = { key: 'profile', path: 'profile', icon: UserCircle };
+const staffNavItem = { key: 'staffPortal', path: 'staff', icon: Shield };
 
 export default function Navbar() {
   const { t, i18n } = useTranslation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [hasInstructorProfile, setHasInstructorProfile] = useState(false);
+  const [isStaff, setIsStaff] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const session = getCurrentSession();
@@ -28,14 +30,20 @@ export default function Navbar() {
     if (!currentSession) {
       Promise.resolve().then(() => {
         if (!cancelled) setHasInstructorProfile(false);
+        if (!cancelled) setIsStaff(false);
       });
       return () => {
         cancelled = true;
       };
     }
 
-    fetchCurrentInstructorProfile().then((result) => {
-      if (!cancelled) setHasInstructorProfile(Boolean(result.data));
+    Promise.all([
+      fetchCurrentInstructorProfile(),
+      fetchCurrentStaffContext(),
+    ]).then(([instructorResult, staffResult]) => {
+      if (cancelled) return;
+      setHasInstructorProfile(Boolean(instructorResult.data));
+      setIsStaff(Boolean(staffResult.data?.isStaff));
     });
 
     return () => {
@@ -65,6 +73,7 @@ export default function Navbar() {
   const handleSignOut = () => {
     signOut();
     setHasInstructorProfile(false);
+    setIsStaff(false);
     setIsMobileMenuOpen(false);
     navigate(toPath('login'));
   };
@@ -72,8 +81,14 @@ export default function Navbar() {
   const visibleNavItems = [
     ...publicNavItems,
     ...(session ? [profileNavItem] : []),
+    ...(isStaff ? [staffNavItem] : []),
     ...(hasInstructorProfile ? [instructorNavItem] : []),
   ];
+
+  const navLabel = (key) => {
+    const translated = t(`nav.${key}`);
+    return translated === `nav.${key}` ? (key === 'staffPortal' ? 'Staff portal' : key) : translated;
+  };
 
   return (
     <>
@@ -96,7 +111,7 @@ export default function Navbar() {
                 }`}
               >
                 <Icon size={16} />
-                {t(`nav.${key}`)}
+                {navLabel(key)}
               </Link>
             ))}
           </div>
@@ -193,7 +208,7 @@ export default function Navbar() {
                   }`}
                 >
                   <Icon size={20} className={location.pathname === toPath(path) ? 'text-white' : 'text-gnd-gray'} />
-                  {t(`nav.${key}`)}
+                  {navLabel(key)}
                 </Link>
               ))}
 

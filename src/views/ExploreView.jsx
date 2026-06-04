@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { Bookmark, Heart, MapPin, MessageCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bookmark, Flag, Heart, MapPin, MessageCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchPosts, togglePostLike, toggleSavedPost } from '../lib/database';
 import { buildLoginRedirectPath } from '../lib/navigation';
 import AuthActionNotice from '../components/AuthActionNotice';
 import PostDetailModal from '../components/PostDetailModal';
+import ReportModal from '../components/ReportModal';
 
 const fallbackImages = [
   'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1000&q=80',
@@ -23,6 +24,7 @@ export default function ExploreView() {
   const [postState, setPostState] = useState({ loading: true, data: [], error: null });
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [reportTarget, setReportTarget] = useState(null);
 
   useEffect(() => {
     const nextParams = {};
@@ -139,6 +141,7 @@ export default function ExploreView() {
             onOpen={() => setSelectedPostId(post.id)}
             onLike={() => handleLike(post)}
             onSave={() => handleSave(post)}
+            onReport={() => setReportTarget(buildPostReportTarget(post))}
             profilePath={`/${i18n.language}/guide/${post.authorUsername || post.instructorId}`}
           />
         ))}
@@ -161,16 +164,18 @@ export default function ExploreView() {
           onClose={() => setSelectedPostId(null)}
           onLike={() => handleLike(selectedPost)}
           onSave={() => handleSave(selectedPost)}
+          onReport={(target) => setReportTarget(target || buildPostReportTarget(selectedPost))}
           profilePath={`/${i18n.language}/guide/${selectedPost.authorUsername || selectedPost.instructorId}`}
           messagePath={selectedPost.authorUsername ? `/${i18n.language}/messages?user=${encodeURIComponent(selectedPost.authorUsername)}` : `/${i18n.language}/messages`}
           t={t}
         />
       )}
+      <ReportModal reportTarget={reportTarget} onClose={() => setReportTarget(null)} />
     </motion.section>
   );
 }
 
-function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
+function PostCard({ post, index, onOpen, onLike, onSave, onReport, profilePath }) {
   const imageUrls = post.imageUrls?.length > 0 ? post.imageUrls : [post.imageUrl || fallbackImages[index % fallbackImages.length]];
   const [imgIndex, setImgIndex] = useState(0);
 
@@ -230,6 +235,9 @@ function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
             <button type="button" className={`transition hover:text-gnd-red ${post.saved ? 'text-gnd-red' : ''}`} onClick={onSave} aria-label="save post">
               <Bookmark size={14} className={post.saved ? 'fill-current' : ''} />
             </button>
+            <button type="button" className="transition hover:text-gnd-red" onClick={onReport} aria-label="report post">
+              <Flag size={14} />
+            </button>
           </div>
         </div>
 
@@ -253,6 +261,21 @@ function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
   );
 }
 
+function buildPostReportTarget(post) {
+  return {
+    title: 'Report post',
+    targetType: 'post',
+    targetId: post.id,
+    reportedUserId: post.authorUserId,
+    evidenceMetadata: {
+      post_id: post.id,
+      instructor_id: post.instructorId,
+      caption: post.caption || post.title || '',
+      author_name: post.coachName || '',
+    },
+  };
+}
+
 function PostSkeleton() {
   return (
     <div className="rounded-[1.5rem] bg-white p-3 shadow-lg shadow-red-900/5">
@@ -266,6 +289,9 @@ function PostSkeleton() {
 function formatInteractionError(error, t) {
   if (error === 'staff_account_restricted') {
     return 'Staff accounts cannot like or save public posts.';
+  }
+  if (error === 'account_suspended') {
+    return 'Your account is currently read-only. You can still browse and contact GuideNextdoor support.';
   }
   const errorMsg = typeof error === 'string' ? error : JSON.stringify(error);
   return `${t('explore.interactionFailed')} (${errorMsg})`;

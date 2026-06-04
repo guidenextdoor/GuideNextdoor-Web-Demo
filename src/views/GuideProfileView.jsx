@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Flag,
   Heart,
   Image as ImageIcon,
   Languages,
@@ -23,6 +24,7 @@ import { motion } from 'framer-motion';
 import { fetchInstructorProfile, submitBookingRequest, togglePostLike, toggleSavedPost } from '../lib/database';
 import { buildLoginRedirectPath } from '../lib/navigation';
 import AuthActionNotice from '../components/AuthActionNotice';
+import ReportModal from '../components/ReportModal';
 
 const tabs = ['posts', 'credentials', 'sessions', 'reviews'];
 
@@ -39,6 +41,7 @@ export default function GuideProfileView() {
   const [selectedCert, setSelectedCert] = useState(null);
   const [bookingServiceId, setBookingServiceId] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [reportTarget, setReportTarget] = useState(null);
   const [shouldScrollToSessions, setShouldScrollToSessions] = useState(false);
   const sessionsSectionRef = useRef(null);
 
@@ -256,6 +259,10 @@ export default function GuideProfileView() {
                   <CalendarDays size={16} />
                   {t('profile.viewSessions')}
                 </button>
+                <button type="button" onClick={() => setReportTarget(buildProfileReportTarget(coach))} className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-black text-gnd-dark ring-1 ring-gnd-cream hover:text-gnd-red">
+                  <Flag size={16} />
+                  Report
+                </button>
               </div>
             </div>
 
@@ -325,8 +332,23 @@ export default function GuideProfileView() {
           t={t}
         />
       )}
+      <ReportModal reportTarget={reportTarget} onClose={() => setReportTarget(null)} />
     </motion.section>
   );
+}
+
+function buildProfileReportTarget(coach) {
+  return {
+    title: 'Report coach profile',
+    targetType: 'profile',
+    targetId: coach.id,
+    reportedUserId: coach.userId,
+    evidenceMetadata: {
+      instructor_profile_id: coach.id,
+      username: coach.username || '',
+      coach_name: coach.name || '',
+    },
+  };
 }
 
 function Stat({ label, value }) {
@@ -1050,12 +1072,18 @@ function formatInteractionError(error, t) {
   if (error === 'staff_account_restricted') {
     return 'Staff accounts cannot like or save public posts.';
   }
+  if (error === 'account_suspended') {
+    return 'Your account is currently read-only. You can still browse and contact GuideNextdoor support.';
+  }
   return `${t('explore.interactionFailed')} ${formatTechnicalError(error)}`;
 }
 
 function formatBookingError(error, t) {
   if (error === 'staff_account_restricted') {
     return 'Staff accounts cannot book classes. Please use a learner account for bookings.';
+  }
+  if (error === 'account_suspended') {
+    return 'Your account is currently read-only, so new bookings and booking changes are paused. Please contact GuideNextdoor support.';
   }
   return `${t('profile.booking.submitFailed')} ${formatTechnicalError(error)}`;
 }

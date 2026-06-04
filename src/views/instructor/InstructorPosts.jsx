@@ -273,5 +273,8 @@ function formatInteractionError(error) {
   if (error === 'staff_account_restricted') {
     return 'Staff accounts cannot like or save public posts.';
   }
+  if (error === 'account_suspended') {
+    return 'Your account is currently read-only. Please contact GuideNextdoor support.';
+  }
   return 'Interaction failed.';
 }

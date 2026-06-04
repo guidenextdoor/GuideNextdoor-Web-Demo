@@ -9,18 +9,17 @@ import {
   MessageCircle,
   Activity,
   CalendarCheck,
-  Hash,
   Pencil,
-  Circle,
   CreditCard,
   Info,
-  ChevronRight
+  Flag
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { updateBookingRequest } from '../lib/database';
+import ReportModal from './ReportModal';
 
 export default function BookingDetailModal({ booking, onClose, messagePath = '', onUpdated }) {
   const { t, i18n } = useTranslation();
@@ -31,6 +30,7 @@ export default function BookingDetailModal({ booking, onClose, messagePath = '',
     totalPrice: booking?.totalPrice ?? 0,
   });
   const [editStatus, setEditStatus] = useState({ saving: false, error: '' });
+  const [reportTarget, setReportTarget] = useState(null);
 
   const lang = i18n.language || 'en';
   const resolvedMessagePath = messagePath || `/${lang}/instructor/messages?user=${booking?.learnerUsername || booking?.learnerId || ''}`;
@@ -260,6 +260,14 @@ export default function BookingDetailModal({ booking, onClose, messagePath = '',
                   Message Learner
                 </Link>
               )}
+              <button
+                type="button"
+                onClick={() => setReportTarget(buildBookingReportTarget(booking))}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-gnd-cream bg-white px-6 text-xs font-black text-gnd-dark transition-all hover:bg-gnd-cream/40 hover:text-gnd-red active:scale-95"
+              >
+                <Flag size={16} />
+                Report issue
+              </button>
               
               {booking.status === 'Pending' ? (
                 <button className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-gnd-red px-8 text-xs font-black text-white shadow-lg shadow-red-600/20 transition-all hover:bg-gnd-dark active:scale-95">
@@ -355,8 +363,25 @@ export default function BookingDetailModal({ booking, onClose, messagePath = '',
           </motion.div>
         )}
       </AnimatePresence>
+      <ReportModal reportTarget={reportTarget} onClose={() => setReportTarget(null)} />
     </div>
   );
+}
+
+function buildBookingReportTarget(booking) {
+  return {
+    title: 'Report booking issue',
+    targetType: 'booking',
+    targetId: booking.id || booking.bookingId,
+    reportedUserId: booking.learnerId || booking.instructorUserId || '',
+    evidenceMetadata: {
+      booking_id: booking.id || booking.bookingId,
+      service_title: booking.serviceTitle || booking.title || '',
+      learner_name: booking.learnerName || '',
+      status: booking.status || '',
+      lesson_date: booking.lessonDate || '',
+    },
+  };
 }
 
 function DetailItem({ icon: Icon, label, value }) {

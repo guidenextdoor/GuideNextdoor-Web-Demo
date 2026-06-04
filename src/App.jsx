@@ -66,6 +66,7 @@ function LanguageWrapper() {
                 <Route path="/login" element={<LoginView />} />
                 <Route path="/profile" element={<AccountProfileView />} />
                 <Route path="/messages" element={<MessagesView />} />
+                <Route path="/staff/login" element={<LoginView staffPortal />} />
                 <Route path="/staff" element={<StaffDashboardView />} />
                 
                 {/* Instructor Dashboard */}

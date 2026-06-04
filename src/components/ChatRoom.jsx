@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Ban, CalendarDays, CheckCircle2, Clock, Headphones, Inbox, MessageSquare, Pencil, Save, Send, Users, X } from 'lucide-react';
+import { Ban, CalendarDays, CheckCircle2, Clock, Flag, Headphones, Inbox, MessageSquare, Pencil, Save, Send, Users, X } from 'lucide-react';
 import {
   ensureDirectConversationWithUser,
   fetchConversationMessages,
@@ -9,6 +9,7 @@ import {
   sendConversationMessage,
   updateBookingRequest,
 } from '../lib/database';
+import ReportModal from './ReportModal';
 
 const BOOKING_STATUS = {
   pending: 'Pending',
@@ -31,6 +32,7 @@ export default function ChatRoom() {
   const [attendanceActionId, setAttendanceActionId] = useState('');
   const [compactOpen, setCompactOpen] = useState(false);
   const [messageReloadKey, setMessageReloadKey] = useState(0);
+  const [reportTarget, setReportTarget] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -265,6 +267,7 @@ export default function ChatRoom() {
           onBookingChanged={refreshActiveConversation}
           attendanceActionId={attendanceActionId}
           onAttendanceAction={handleAttendanceAction}
+          onReportConversation={() => setReportTarget(buildConversationReportTarget(activeConversation))}
         />
       </div>
 
@@ -297,11 +300,13 @@ export default function ChatRoom() {
                 onBookingChanged={refreshActiveConversation}
                 attendanceActionId={attendanceActionId}
                 onAttendanceAction={handleAttendanceAction}
+                onReportConversation={() => setReportTarget(buildConversationReportTarget(activeConversation))}
               />
             </div>
           </div>
         </div>
       )}
+      <ReportModal reportTarget={reportTarget} onClose={() => setReportTarget(null)} />
     </section>
   );
 }
@@ -412,14 +417,14 @@ function uniqueBy(items, getKey) {
   });
 }
 
-function ChatPanel({ activeConversation, messageState, draft, setDraft, sending, handleSend, onBookingChanged, attendanceActionId, onAttendanceAction }) {
+function ChatPanel({ activeConversation, messageState, draft, setDraft, sending, handleSend, onBookingChanged, attendanceActionId, onAttendanceAction, onReportConversation }) {
   const { t } = useTranslation();
 
   return (
     <>
       {activeConversation ? (
         <>
-          <ChatHeader conversation={activeConversation} />
+          <ChatHeader conversation={activeConversation} onReport={onReportConversation} />
           <div className="flex-1 overflow-auto bg-gnd-cream/25 p-4 sm:p-6">
             {messageState.loading && (
               <div className="grid h-full min-h-60 place-items-center">
@@ -452,7 +457,7 @@ function ChatPanel({ activeConversation, messageState, draft, setDraft, sending,
           </div>
 
           {messageState.error && (
-            <p className="border-t border-gnd-cream bg-red-50 px-4 py-3 text-xs font-bold text-gnd-red">{messageState.error}</p>
+            <p className="border-t border-gnd-cream bg-red-50 px-4 py-3 text-xs font-bold text-gnd-red">{formatChatError(messageState.error)}</p>
           )}
 
           <BookingStack conversation={activeConversation} onBookingChanged={onBookingChanged} />
@@ -483,17 +488,37 @@ function ChatPanel({ activeConversation, messageState, draft, setDraft, sending,
   );
 }
 
-function ChatHeader({ conversation }) {
+function ChatHeader({ conversation, onReport }) {
   return (
     <header className="border-b border-gnd-cream bg-white p-4">
-      <div className="flex min-w-0 items-center gap-3 pr-12 lg:pr-0">
-        <Avatar conversation={conversation} />
-        <div className="min-w-0">
-          <h2 className="truncate text-lg font-black text-gnd-dark">{conversation.otherPartyName}</h2>
+      <div className="flex min-w-0 items-center justify-between gap-3 pr-12 lg:pr-0">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar conversation={conversation} />
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-black text-gnd-dark">{conversation.otherPartyName}</h2>
+          </div>
         </div>
+        <button type="button" onClick={onReport} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-gnd-cream px-3 py-2 text-xs font-black text-gnd-dark hover:text-gnd-red">
+          <Flag size={14} />
+          Report
+        </button>
       </div>   
     </header>
   );
+}
+
+function buildConversationReportTarget(conversation) {
+  return {
+    title: 'Report chat',
+    targetType: 'message',
+    targetId: conversation.primaryConversationId || conversation.id,
+    reportedUserId: conversation.otherPartyId,
+    evidenceMetadata: {
+      conversation_id: conversation.primaryConversationId || '',
+      other_party_name: conversation.otherPartyName || '',
+      last_message: conversation.lastMessage || '',
+    },
+  };
 }
 
 function BookingStack({ conversation, onBookingChanged }) {
@@ -926,6 +951,13 @@ function buildCsContactHref(booking, message) {
     'Issue:',
   ].join('\n'));
   return `mailto:support@guidenextdoor.com?subject=${subject}&body=${body}`;
+}
+
+function formatChatError(error) {
+  if (error === 'account_suspended') {
+    return 'Your account is currently read-only. You can still message GuideNextdoor support.';
+  }
+  return error;
 }
 
 function Avatar({ conversation }) {
