@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Bookmark, CalendarCheck, Lock, Mail, MessageCircle, UserCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { consumeAuthRedirect, fetchCurrentStaffContext, getCurrentSession, signUpWithPassword, signInWithPassword } from '../lib/database';
+import { consumeAuthRedirect, fetchCurrentStaffContext, getCurrentSession, sendPasswordResetEmail, signUpWithPassword, signInWithPassword } from '../lib/database';
 
 export default function LoginView({ staffPortal = false }) {
   const { t, i18n } = useTranslation();
@@ -98,6 +98,20 @@ export default function LoginView({ staffPortal = false }) {
     }
 
     setStatus({ saving: false, error: '', notice: t('auth.checkSignupEmail') });
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      setStatus({ saving: false, error: 'Enter your email first.', notice: '' });
+      return;
+    }
+    setStatus({ saving: true, error: '', notice: '' });
+    const result = await sendPasswordResetEmail(email.trim(), `${window.location.origin}/${i18n.language}/login`);
+    setStatus({
+      saving: false,
+      error: result.error ? 'Could not send the password reset email.' : '',
+      notice: result.error ? '' : 'Password reset email sent.',
+    });
   };
 
   return (
@@ -233,6 +247,11 @@ export default function LoginView({ staffPortal = false }) {
                 <button type="submit" className="rounded-lg bg-gnd-red px-5 py-3 text-sm font-black text-white transition hover:bg-gnd-dark disabled:opacity-60" disabled={status.saving}>
                 {status.saving ? t('states.saving') : mode === 'signup' ? t('auth.signupEmail') : t('auth.signIn')}
                 </button>
+                {mode === 'login' && (
+                  <button type="button" onClick={handleForgotPassword} className="justify-self-start text-sm font-black text-gnd-red hover:text-gnd-dark">
+                    Forgot password?
+                  </button>
+                )}
               </form>
             </div>
           )}

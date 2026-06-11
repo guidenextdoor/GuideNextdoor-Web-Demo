@@ -12,26 +12,37 @@ import {
   ChevronRight,
   DollarSign
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { fetchInstructorSchedule } from '../../lib/database';
+import { motion } from 'framer-motion';
+import { fetchInstructorSchedule, getCachedInstructorSchedule } from '../../lib/database';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
 import BookingDetailModal from '../../components/BookingDetailModal';
 
 export default function InstructorOverview() {
   const { t } = useTranslation();
-  const [state, setState] = useState({ loading: true, data: null, error: null });
+  const cachedSchedule = getCachedInstructorSchedule();
+  const [state, setState] = useState({
+    loading: !cachedSchedule?.data,
+    data: cachedSchedule?.data || null,
+    error: cachedSchedule?.error || null,
+  });
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [showEarningModal, setShowEarningModal] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadData() {
       const result = await fetchInstructorSchedule();
-      setState({ loading: false, data: result.data, error: result.error });
+      if (cancelled) return;
+      setState({ loading: false, data: result.data || getCachedInstructorSchedule()?.data || null, error: result.error });
     }
-    loadData();
-  }, []);
 
-  if (state.loading) return <div className="grid h-64 place-items-center">{t('states.loading')}</div>;
+    loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const coach = state.data?.coach;
   const stats = state.data?.coach?.stats || {};
@@ -52,68 +63,78 @@ export default function InstructorOverview() {
       title={t('workspace.overview.welcome', { name: coach?.name?.split(' ')[0] || 'Coach' })}
       subtitle={t('workspace.overview.subtitle')}
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
-        <StatCard label={t('profile.stats.reviews')} value={stats.reviewCount || 0} icon={Star} subValue={stats.averageRating ? stats.averageRating.toFixed(1) : '0.0'} color="text-yellow-500" />
-        <StatCard label={t('profile.stats.sessions')} value={stats.completedSessionCount || 0} icon={Calendar} color="text-blue-500" />
-        
-        <button 
-          onClick={() => setShowEarningModal(true)}
-          className="col-span-2 group relative overflow-hidden rounded-lg border border-gnd-cream bg-white p-4 sm:p-6 shadow-sm transition-all hover:shadow-md hover:border-gnd-red/20 text-center sm:col-span-1"
-        >
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray mb-2 sm:mb-3">{t('workspace.overview.earnings')}</p>
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-2xl sm:text-3xl font-black text-gnd-dark group-hover:text-gnd-red transition-colors">
-              {formatEarnings(stats.earningsThisMonth)}
-            </span>
-            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-gnd-cream/30 text-green-600">
-              {t('workspace.overview.thisMonth')}
-            </span>
-          </div>
-          <div className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity">
-            <ArrowUpRight size={14} className="text-gnd-red" />
-          </div>
-        </button>
-      </div>
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-base font-black text-gnd-dark sm:text-lg">
-              <AlertCircle size={20} className="text-gnd-red" />
-              {t('workspace.overview.pendingRequests')}
-            </h2>
-            <button className="text-sm font-black text-gnd-red hover:underline">
-              {t('workspace.overview.viewAll')}
+      {state.loading ? (
+        <OverviewSkeleton />
+      ) : state.error && !state.data ? (
+        <section className="rounded-lg border border-red-100 bg-white p-6 text-sm font-bold text-gnd-red shadow-sm">
+          {t('states.error')}
+        </section>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+            <StatCard label={t('profile.stats.reviews')} value={stats.reviewCount || 0} icon={Star} subValue={stats.averageRating ? stats.averageRating.toFixed(1) : '0.0'} color="text-yellow-500" />
+            <StatCard label={t('profile.stats.sessions')} value={stats.completedSessionCount || 0} icon={Calendar} color="text-blue-500" />
+            
+            <button 
+              onClick={() => setShowEarningModal(true)}
+              className="col-span-2 group relative overflow-hidden rounded-lg border border-gnd-cream bg-white p-4 sm:p-6 shadow-sm transition-all hover:shadow-md hover:border-gnd-red/20 text-center sm:col-span-1"
+            >
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-gray mb-2 sm:mb-3">{t('workspace.overview.earnings')}</p>
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-2xl sm:text-3xl font-black text-gnd-dark group-hover:text-gnd-red transition-colors">
+                  {formatEarnings(stats.earningsThisMonth)}
+                </span>
+                <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-gnd-cream/30 text-green-600">
+                  {t('workspace.overview.thisMonth')}
+                </span>
+              </div>
+              <div className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ArrowUpRight size={14} className="text-gnd-red" />
+              </div>
             </button>
           </div>
-          <div className="grid gap-3">
-            {pendingBookings.length > 0 ? pendingBookings.map((booking) => (
-              <BookingActionCard key={booking.id} booking={booking} type="pending" onClick={() => setSelectedBooking(booking)} />
-            )) : (
-              <EmptyState small message={t('workspace.overview.noPending')} />
-            )}
-          </div>
-        </section>
 
-        <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-base font-black text-gnd-dark sm:text-lg">
-              <Clock size={20} className="text-blue-500" />
-              {t('workspace.overview.upcomingSessions')}
-            </h2>
-            <button className="text-sm font-black text-gnd-red hover:underline">
-              {t('workspace.overview.viewSchedule')}
-            </button>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-base font-black text-gnd-dark sm:text-lg">
+                  <AlertCircle size={20} className="text-gnd-red" />
+                  {t('workspace.overview.pendingRequests')}
+                </h2>
+                <button className="text-sm font-black text-gnd-red hover:underline">
+                  {t('workspace.overview.viewAll')}
+                </button>
+              </div>
+              <div className="grid gap-3">
+                {pendingBookings.length > 0 ? pendingBookings.map((booking) => (
+                  <BookingActionCard key={booking.id} booking={booking} type="pending" onClick={() => setSelectedBooking(booking)} />
+                )) : (
+                  <EmptyState small message={t('workspace.overview.noPending')} />
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-base font-black text-gnd-dark sm:text-lg">
+                  <Clock size={20} className="text-blue-500" />
+                  {t('workspace.overview.upcomingSessions')}
+                </h2>
+                <button className="text-sm font-black text-gnd-red hover:underline">
+                  {t('workspace.overview.viewSchedule')}
+                </button>
+              </div>
+              <div className="grid gap-3">
+                {upcomingBookings.length > 0 ? upcomingBookings.map((booking) => (
+                  <BookingActionCard key={booking.id} booking={booking} type="upcoming" onClick={() => setSelectedBooking(booking)} />
+                )) : (
+                  <EmptyState small message={t('workspace.overview.noUpcoming')} />
+                )}
+              </div>
+            </section>
           </div>
-          <div className="grid gap-3">
-            {upcomingBookings.length > 0 ? upcomingBookings.map((booking) => (
-              <BookingActionCard key={booking.id} booking={booking} type="upcoming" onClick={() => setSelectedBooking(booking)} />
-            )) : (
-              <EmptyState small message={t('workspace.overview.noUpcoming')} />
-            )}
-          </div>
-        </section>
-      </div>
+        </>
+      )}
 
       {selectedBooking && (
         <BookingDetailModal 
@@ -132,6 +153,47 @@ export default function InstructorOverview() {
         />
       )}
     </InstructorDashboardLayout>
+  );
+}
+
+function OverviewSkeleton() {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+        {[0, 1, 2].map((item) => (
+          <div
+            key={item}
+            className={`${item === 2 ? 'col-span-2 sm:col-span-1' : ''} min-h-32 animate-pulse rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-6`}
+          >
+            <div className="mx-auto h-3 w-20 rounded-full bg-gnd-cream" />
+            <div className="mx-auto mt-5 h-8 w-16 rounded-full bg-gnd-cream/80" />
+            <div className="mx-auto mt-3 h-4 w-24 rounded-full bg-gnd-cream/60" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {[0, 1].map((item) => (
+          <section key={item} className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex items-center justify-between">
+              <div className="h-5 w-40 animate-pulse rounded-full bg-gnd-cream" />
+              <div className="h-4 w-16 animate-pulse rounded-full bg-gnd-cream/70" />
+            </div>
+            <div className="mt-4 grid gap-3">
+              {[0, 1, 2].map((row) => (
+                <div key={row} className="flex items-center gap-4 rounded-lg border border-gnd-cream bg-gnd-cream/10 p-3">
+                  <div className="h-10 w-10 animate-pulse rounded-md bg-gnd-cream" />
+                  <div className="flex-1">
+                    <div className="h-4 w-32 animate-pulse rounded-full bg-gnd-cream" />
+                    <div className="mt-2 h-3 w-20 animate-pulse rounded-full bg-gnd-cream/70" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </>
   );
 }
 

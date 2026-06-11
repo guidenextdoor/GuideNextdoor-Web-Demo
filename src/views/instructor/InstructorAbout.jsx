@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Award, Briefcase, Camera, Check, ChevronDown, Clock, Edit2, Languages, Loader2, MapPin, Save, Search, ShieldCheck, UserCircle, X } from 'lucide-react';
+import { Award, Briefcase, Camera, Check, ChevronDown, ChevronRight, Edit2, Eye, EyeOff, Languages, Loader2, Lock, MapPin, Plus, Save, Search, ShieldCheck, UserCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { checkUsernameAvailability, fetchInstructorSchedule, fetchLanguages, updateInstructorProfile, uploadFile } from '../../lib/database';
+import { checkUsernameAvailability, createInstructorCredential, fetchInstructorSchedule, fetchLanguages, updateCurrentUserPassword, updateInstructorProfile, uploadFile } from '../../lib/database';
 import { compressImage } from '../../lib/image-utils';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
+import CredentialModal from '../../components/instructor/CredentialModal';
 
 export default function InstructorAbout() {
   const { t } = useTranslation();
   const [state, setState] = useState({ loading: true, data: null, error: null });
   const [editing, setEditing] = useState(false);
+  const [isCredentialModalOpen, setIsCredentialModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showLangDropdown, setShowLangDropdown] = useState(false);
   const [langSearch, setLangSearch] = useState('');
@@ -20,6 +22,9 @@ export default function InstructorAbout() {
     avatarUrl: '',
     languageIds: [],
   });
+  const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' });
+  const [passwordVisibility, setPasswordVisibility] = useState({ newPassword: false, confirmPassword: false });
+  const [passwordStatus, setPasswordStatus] = useState({ saving: false, error: '', notice: '' });
   const [allLanguages, setAllLanguages] = useState([]);
   const [usernameStatus, setUsernameStatus] = useState({ checking: false, available: true, error: '' });
   const [notice, setNotice] = useState('');
@@ -35,10 +40,12 @@ export default function InstructorAbout() {
       ]);
 
       if (scheduleResult.error && !scheduleResult.data) {
+         
         setState({ loading: false, data: null, error: scheduleResult.error });
         return;
       }
 
+       
       setState({ loading: false, data: scheduleResult.data, error: null });
       setAllLanguages(languagesResult.data || []);
 
@@ -52,12 +59,29 @@ export default function InstructorAbout() {
           languageIds: (coach.languages || []).map(l => l.id),
         });
       }
-    } catch (err) {
-      setState({ loading: false, data: null, error: err.message || 'Failed to load profile' });
+    } catch {
+       
+      setState({ loading: false, data: null, error: 'Failed to load profile' });
     }
   };
 
+  const handleCredentialSave = async (formData) => {
+    setNotice('');
+    const result = await createInstructorCredential({
+      ...formData,
+      instructorId: state.data?.coach?.id,
+    });
+    if (result?.error) {
+      setNotice('We could not submit the credential. Please try again.');
+      return result;
+    }
+    setNotice('Credential submitted. GuideNextdoor staff will review it before it appears publicly.');
+    await loadData();
+    return result;
+  };
+
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
   }, []);
 
@@ -75,6 +99,7 @@ export default function InstructorAbout() {
   // Debounced username check
   useEffect(() => {
     if (!editing || !form.username || form.username === state.data?.coach?.username) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUsernameStatus({ checking: false, available: true, error: '' });
       return;
     }
@@ -114,7 +139,7 @@ export default function InstructorAbout() {
       } else {
         setNotice('Photo upload failed');
       }
-    } catch (err) {
+    } catch {
       setNotice('Error processing photo');
     } finally {
       setSaving(false);
@@ -149,9 +174,34 @@ export default function InstructorAbout() {
     }
   };
 
+  const handlePasswordSubmit = async () => {
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordStatus({ saving: false, error: 'Password must be at least 8 characters.', notice: '' });
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordStatus({ saving: false, error: 'Passwords do not match.', notice: '' });
+      return;
+    }
+    setPasswordStatus({ saving: true, error: '', notice: '' });
+    const result = await updateCurrentUserPassword(passwordForm.newPassword);
+    if (result.error) {
+      setPasswordStatus({ saving: false, error: 'Could not update password. Please try again.', notice: '' });
+      return;
+    }
+    setPasswordForm({ newPassword: '', confirmPassword: '' });
+    setPasswordStatus({ saving: false, error: '', notice: 'Password updated.' });
+  };
+
   const coach = state.data?.coach;
   const services = state.data?.services || [];
+  const credentials = buildInstructorCredentialRows(state.data?.credentials || [], services);
+  const credentialGroups = groupCredentialsByActivity(credentials);
   const selectedLangs = allLanguages.filter(l => form.languageIds.includes(l.id));
+  const passwordStarted = Boolean(passwordForm.newPassword || passwordForm.confirmPassword);
+  const passwordLongEnough = passwordForm.newPassword.length >= 8;
+  const passwordsMatch = Boolean(passwordForm.newPassword && passwordForm.confirmPassword && passwordForm.newPassword === passwordForm.confirmPassword);
+  const canUpdatePassword = passwordLongEnough && passwordsMatch;
 
   return (
     <InstructorDashboardLayout
@@ -215,7 +265,7 @@ export default function InstructorAbout() {
 
             <div className="flex flex-col gap-5 sm:flex-row">
               <div 
-                className={`relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-gnd-cream group ${editing ? 'cursor-pointer' : ''}`}
+                className={`relative h-24 w-24 shrink-0 overflow-hidden rounded-full bg-gnd-cream group ${editing ? 'cursor-pointer' : ''}`}
                 onClick={handlePhotoClick}
               >
                 {(form.avatarUrl || coach.avatarUrl) ? (
@@ -427,25 +477,141 @@ export default function InstructorAbout() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
-            <div className="flex items-center gap-2">
-              <Award size={20} className="text-gnd-red" />
-              <h2 className="text-lg font-black text-gnd-dark">{t('profile.tabs.credentials')}</h2>
+          <section className="overflow-hidden rounded-lg border border-gnd-cream bg-white shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-gnd-cream px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div className="flex items-center gap-2">
+                <Award size={20} className="text-gnd-red" />
+                <div>
+                  <h2 className="text-lg font-black text-gnd-dark">{t('profile.tabs.credentials')}</h2>
+                  <p className="mt-0.5 text-xs font-bold text-gnd-gray">Add more qualifications under each activity. Staff approval is required before public display.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCredentialModalOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-gnd-red px-4 py-3 text-sm font-black text-white hover:bg-gnd-dark"
+              >
+                <Plus size={16} />
+                Add credential
+              </button>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {services.length ? services.map((service) => (
-                <article key={service.id} className="rounded-lg border border-gnd-cream bg-gnd-cream/15 p-4">
-                  <p className="text-sm font-black text-gnd-dark">{service.title}</p>
-                  <p className="mt-1 text-xs font-bold text-gnd-gray">
-                    {service.qualification || t('profile.credentials.noQualification')}
-                  </p>
-                  <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-gnd-red">
-                    {service.years || 0} {t('profile.stats.years')}
-                  </p>
-                </article>
-              )) : (
+            {credentialGroups.length ? (
+              <div>
+                {credentialGroups.map((group) => (
+                  <section key={group.key} className="grid border-b border-gnd-cream last:border-b-0 md:grid-cols-[220px_minmax(0,1fr)]">
+                    <div className="flex items-center gap-3 bg-gnd-cream/40 px-4 py-4 md:items-start md:px-5">
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white text-gnd-red shadow-sm shadow-red-900/5">
+                        <Award size={19} />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="truncate text-base font-black text-gnd-dark md:whitespace-normal">{group.title}</h3>
+                        <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-gnd-gray">
+                          {group.items.length} {group.items.length === 1 ? 'credential' : 'credentials'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="divide-y divide-gnd-cream">
+                      {group.items.map((credential) => {
+                        const meta = getCredentialStatusMeta(credential.status);
+                        const showStatus = meta.key !== 'approved';
+                        return (
+                          <div key={credential.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-4 sm:grid-cols-[92px_minmax(0,1fr)_auto] sm:px-5">
+                            <span className="hidden rounded-md bg-gnd-cream px-3 py-2 text-center text-xs font-black text-gnd-red sm:block">
+                              {credential.attainmentYear || 'Verified'}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                {showStatus && <span className={`shrink-0 rounded-md border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${meta.className}`}>{meta.label}</span>}
+                                <p className="min-w-0 text-sm font-black leading-5 text-gnd-dark">{credential.qualification || t('profile.credentials.noQualification')}</p>
+                              </div>
+                              <span className="mt-1 block text-[10px] font-black uppercase tracking-widest text-gnd-gray sm:hidden">{credential.attainmentYear || 'Verified'}</span>
+                            </div>
+                            <ChevronRight size={18} className="text-gnd-gray" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <div className="p-5 text-center">
                 <p className="text-sm font-bold text-gnd-gray">{t('workspace.about.noServices')}</p>
-              )}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex items-start gap-2">
+              <Lock size={20} className="mt-0.5 text-gnd-red" />
+              <div>
+                <h2 className="text-lg font-black text-gnd-dark">Account security</h2>
+                <p className="mt-0.5 text-xs font-bold text-gnd-gray">Update your password independently from public profile changes.</p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1.5">
+                <span className="text-[10px] font-black uppercase tracking-widest text-gnd-gray">New password</span>
+                <span className="flex rounded-lg border border-gnd-cream bg-gnd-cream/30 px-3 py-2 focus-within:border-gnd-red">
+                  <input
+                    type={passwordVisibility.newPassword ? 'text' : 'password'}
+                    value={passwordForm.newPassword}
+                    onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                    minLength={8}
+                    className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPasswordVisibility((current) => ({ ...current, newPassword: !current.newPassword }))}
+                    className="ml-2 grid h-6 w-6 place-items-center rounded-md text-gnd-gray hover:bg-white hover:text-gnd-red"
+                    aria-label={passwordVisibility.newPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {passwordVisibility.newPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </span>
+                {passwordStarted && (
+                  <span className={`text-xs font-bold ${passwordLongEnough ? 'text-green-700' : 'text-gnd-red'}`}>
+                    {passwordLongEnough ? 'At least 8 characters' : 'Use at least 8 characters'}
+                  </span>
+                )}
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-[10px] font-black uppercase tracking-widest text-gnd-gray">Confirm new password</span>
+                <span className="flex rounded-lg border border-gnd-cream bg-gnd-cream/30 px-3 py-2 focus-within:border-gnd-red">
+                  <input
+                    type={passwordVisibility.confirmPassword ? 'text' : 'password'}
+                    value={passwordForm.confirmPassword}
+                    onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                    minLength={8}
+                    className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPasswordVisibility((current) => ({ ...current, confirmPassword: !current.confirmPassword }))}
+                    className="ml-2 grid h-6 w-6 place-items-center rounded-md text-gnd-gray hover:bg-white hover:text-gnd-red"
+                    aria-label={passwordVisibility.confirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {passwordVisibility.confirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </span>
+                {passwordStarted && passwordForm.confirmPassword && (
+                  <span className={`text-xs font-bold ${passwordsMatch ? 'text-green-700' : 'text-gnd-red'}`}>
+                    {passwordsMatch ? 'Passwords match' : 'Passwords do not match'}
+                  </span>
+                )}
+              </label>
+            </div>
+            {passwordStatus.error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs font-bold text-gnd-red">{passwordStatus.error}</p>}
+            {passwordStatus.notice && <p className="mt-3 rounded-md bg-green-50 px-3 py-2 text-xs font-bold text-green-700">{passwordStatus.notice}</p>}
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={handlePasswordSubmit}
+                disabled={passwordStatus.saving || !canUpdatePassword}
+                className="rounded-lg bg-gnd-dark px-4 py-2.5 text-sm font-black text-white hover:bg-gnd-red disabled:opacity-50"
+              >
+                {passwordStatus.saving ? t('states.saving') : 'Update password'}
+              </button>
             </div>
           </section>
         </div>
@@ -457,6 +623,61 @@ export default function InstructorAbout() {
           <button type="button" className="ml-3 text-white/70" onClick={() => setNotice('')}>Dismiss</button>
         </div>
       )}
+      <CredentialModal
+        isOpen={isCredentialModalOpen}
+        onClose={() => setIsCredentialModalOpen(false)}
+        onSave={handleCredentialSave}
+        instructorId={state.data?.coach?.id}
+      />
     </InstructorDashboardLayout>
   );
+}
+
+function buildInstructorCredentialRows(credentials, services) {
+  const rows = [...credentials];
+  const seen = new Set(rows.map((credential) => credentialKey(credential)));
+  services.forEach((service) => {
+    if (!service.qualification && !service.maskedCertUrl && !service.rawCertUrl) return;
+    const credential = {
+      id: `service-${service.id}`,
+      activityId: service.activityId,
+      activityKey: service.activityKey,
+      title: service.title,
+      qualification: service.qualification,
+      attainmentYear: service.attainmentYear,
+      status: service.status || 'Pending',
+      source: 'service',
+    };
+    const key = credentialKey(credential);
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(credential);
+  });
+  return rows;
+}
+
+function groupCredentialsByActivity(credentials) {
+  const groups = new Map();
+  credentials.forEach((credential) => {
+    const key = credential.activityId || credential.activityKey || credential.title || 'Other';
+    if (!groups.has(key)) groups.set(key, { key, title: credential.title || 'Other', items: [] });
+    groups.get(key).items.push(credential);
+  });
+  return [...groups.values()].sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function credentialKey(credential) {
+  return [
+    credential.activityId || credential.activityKey || '',
+    String(credential.qualification || '').toLowerCase(),
+    credential.attainmentYear || '',
+  ].join('|');
+}
+
+function getCredentialStatusMeta(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'approved') return { key: 'approved', label: 'Approved', className: 'border-green-100 bg-green-50 text-green-700' };
+  if (normalized === 'rejected') return { key: 'rejected', label: 'Rejected', className: 'border-red-100 bg-red-50 text-gnd-red' };
+  if (normalized === 'needs info' || normalized === 'needs_info' || normalized === 'needs_information') return { key: 'needs_info', label: 'Needs info', className: 'border-purple-100 bg-purple-50 text-purple-700' };
+  return { key: 'pending', label: 'Submitted', className: 'border-amber-100 bg-amber-50 text-amber-700' };
 }

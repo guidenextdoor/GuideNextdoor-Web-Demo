@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { createComplaintReport } from '../lib/database';
 
@@ -12,11 +12,45 @@ const reportReasons = [
   { value: 'other', label: 'Other' },
 ];
 
+const initialReportForm = { reasonCategory: reportReasons[0].value, description: '', evidenceUrl: '' };
+const initialReportState = { saving: false, error: '', notice: '' };
+
 export default function ReportModal({ reportTarget, onClose, onSubmitted }) {
-  const [form, setForm] = useState({ reasonCategory: reportReasons[0].value, description: '', evidenceUrl: '' });
-  const [state, setState] = useState({ saving: false, error: '', notice: '' });
+  const reportTargetKey = useMemo(() => {
+    if (!reportTarget) return '';
+    return `${reportTarget.targetType || ''}:${reportTarget.targetId || ''}:${reportTarget.reportedUserId || ''}`;
+  }, [reportTarget]);
 
   if (!reportTarget) return null;
+
+  return (
+    <ReportModalForm
+      key={reportTargetKey}
+      reportTarget={reportTarget}
+      onClose={onClose}
+      onSubmitted={onSubmitted}
+    />
+  );
+}
+
+function ReportModalForm({ reportTarget, onClose, onSubmitted }) {
+  const [form, setForm] = useState(initialReportForm);
+  const [state, setState] = useState(initialReportState);
+  const closeTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
+  const closeModal = () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setForm(initialReportForm);
+    setState(initialReportState);
+    onClose?.();
+  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -33,11 +67,11 @@ export default function ReportModal({ reportTarget, onClose, onSubmitted }) {
     }
     setState({ saving: false, error: '', notice: 'Report submitted. GuideNextdoor staff will review it.' });
     onSubmitted?.(result.data);
-    window.setTimeout(() => onClose?.(), 700);
+    closeTimerRef.current = window.setTimeout(() => closeModal(), 700);
   };
 
   return (
-    <div className="fixed inset-0 z-[120] grid place-items-center bg-gnd-dark/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[120] grid place-items-center bg-gnd-dark/70 p-4 backdrop-blur-sm" onClick={closeModal}>
       <form onSubmit={submit} className="w-full max-w-lg rounded-lg bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -48,7 +82,7 @@ export default function ReportModal({ reportTarget, onClose, onSubmitted }) {
             <h2 className="mt-2 text-2xl font-black text-gnd-dark">{reportTarget.title || 'Report an issue'}</h2>
             <p className="mt-1 text-sm font-bold leading-6 text-gnd-gray">Your report is sent to GuideNextdoor staff with the related content attached.</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md bg-gnd-cream p-2 text-gnd-gray hover:text-gnd-red" aria-label="Close report form">
+          <button type="button" onClick={closeModal} className="rounded-md bg-gnd-cream p-2 text-gnd-gray hover:text-gnd-red" aria-label="Close report form">
             <X size={18} />
           </button>
         </div>
@@ -74,7 +108,7 @@ export default function ReportModal({ reportTarget, onClose, onSubmitted }) {
         {state.notice && <p className="mt-4 rounded-lg bg-green-50 px-4 py-3 text-sm font-bold text-green-700">{state.notice}</p>}
 
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg bg-gnd-cream px-4 py-3 text-sm font-black text-gnd-dark">Cancel</button>
+          <button type="button" onClick={closeModal} className="rounded-lg bg-gnd-cream px-4 py-3 text-sm font-black text-gnd-dark">Cancel</button>
           <button type="submit" disabled={state.saving || !form.description.trim()} className="inline-flex items-center gap-2 rounded-lg bg-gnd-red px-4 py-3 text-sm font-black text-white disabled:opacity-40">
             {state.saving && <Loader2 size={16} className="animate-spin" />}
             Submit report
@@ -86,7 +120,12 @@ export default function ReportModal({ reportTarget, onClose, onSubmitted }) {
 }
 
 function formatReportError(error) {
-  if (error === 'auth_required') return 'Please log in to submit a report.';
-  if (error === 'account_suspended') return 'Your account is currently read-only. Please contact GuideNextdoor support.';
+  const message = String(error || '');
+  if (message === 'auth_required') return 'Please log in to submit a report.';
+  if (message === 'account_suspended') return 'Your account is currently read-only. Please contact GuideNextdoor support.';
+  if (message === 'staff_account_restricted') return 'Staff accounts cannot submit public reports. Please use the staff portal review tools.';
+  if (message.includes('complaints') && (message.includes('does not exist') || message.includes('schema cache'))) {
+    return 'Reporting is not ready yet. Please ask GuideNextdoor staff to apply the complaints workflow database update.';
+  }
   return 'We could not submit the report. Please try again.';
 }

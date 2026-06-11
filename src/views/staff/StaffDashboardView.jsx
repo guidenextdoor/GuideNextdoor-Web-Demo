@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { CheckCircle2, FileCheck, Inbox, Loader2, MessageSquare, Plus, RefreshCw, Search, Shield, Trash2, UserLock, Users, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, FileCheck, Inbox, Loader2, MessageSquare, Plus, RefreshCw, Search, Shield, Trash2, UserLock, Users, X, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   approveCoachApplication,
+  claimComplaint,
   createStaffMemberAccount,
   createUserBlock,
   escalateComplaintToSuspension,
@@ -21,9 +22,15 @@ import {
   hasStaffPermission,
   hasStaffRole,
   liftUserBlock,
+  markSuspensionRiskReviewed,
+  moderateComplaintTarget,
   searchSuspensionAccounts,
   sendComplaintSupportMessage,
   updateCoachApplicationPublicCertificate,
+  completeStaffFirstPasswordChange,
+  updateStaffCredentialPublicCertificate,
+  updateStaffCredentialRequestReview,
+  updateStaffServicePublicCertificate,
   updateStaffMemberAccount,
   updateStaffServiceRequestReview,
   updateCoachApplicationReview,
@@ -51,7 +58,7 @@ const statusStyles = {
 
 const staffTabs = [
   { key: 'applications', label: 'Coach applications', icon: FileCheck, permission: 'application.view' },
-  { key: 'services', label: 'Service approval', icon: Plus, permission: 'service.approve' },
+  { key: 'services', label: 'Service & Credential Approval', icon: Plus, permission: 'service.approve' },
   { key: 'complaints', label: 'Complaints', icon: MessageSquare, permission: 'user.block' },
   { key: 'users', label: 'Suspension', icon: UserLock, permission: 'user.block' },
   { key: 'posts', label: 'Post deletion', icon: Trash2, permission: 'user.block' },
@@ -88,6 +95,7 @@ export default function StaffDashboardView() {
   const [staffNote, setStaffNote] = useState('');
   const [serviceForm, setServiceForm] = useState({ description: '', minDurationHours: 1, price1: '', extraPersonFee: '', currency: 'HKD' });
   const [certificateMaskApplication, setCertificateMaskApplication] = useState(null);
+  const [certificateMaskService, setCertificateMaskService] = useState(null);
   const [blockForm, setBlockForm] = useState({
     userId: '',
     status: 'temporary',
@@ -120,6 +128,10 @@ export default function StaffDashboardView() {
     () => staffTabs.filter((tab) => (tab.role ? hasStaffRole(staffState.context, tab.role) : hasStaffPermission(staffState.context, tab.permission))),
     [staffState.context],
   );
+  const unclaimedComplaintCount = useMemo(
+    () => complaintsState.data.filter((complaint) => complaint.status === 'new' && !complaint.assignedStaffMemberId).length,
+    [complaintsState.data],
+  );
   const can = (permission) => hasStaffPermission(staffState.context, permission);
 
   useEffect(() => {
@@ -148,12 +160,20 @@ export default function StaffDashboardView() {
           setServiceState({ loading: false, data: serviceResult.data || [], error: serviceResult.error || '' });
           setSelectedServiceId((current) => current || serviceResult.data?.[0]?.id || '');
         }
+        if (hasStaffPermission(contextResult.data, 'user.block')) {
+          setComplaintsState({ loading: true, data: [], error: '' });
+          const complaintsResult = await fetchStaffComplaints();
+          if (cancelled) return;
+          setComplaintsState({ loading: false, data: complaintsResult.data || [], error: complaintsResult.error || '' });
+          setSelectedComplaintId((current) => current || complaintsResult.data?.[0]?.id || '');
+        }
       } catch (error) {
         if (cancelled) return;
         const message = error?.message || String(error);
         setStaffState((current) => ({ ...current, loading: false, error: message }));
         setState((current) => ({ ...current, loading: false, error: message }));
         setServiceState((current) => ({ ...current, loading: false, error: message }));
+        setComplaintsState((current) => ({ ...current, loading: false, error: message }));
       }
     });
     return () => {
@@ -332,6 +352,21 @@ export default function StaffDashboardView() {
     await reloadApplications();
   };
 
+  const handleSaveServicePublicCertificate = async ({ serviceId, file }) => {
+    setReviewState({ saving: true, error: '', notice: '' });
+    const isCredential = certificateMaskService?.requestType === 'credential';
+    const result = isCredential
+      ? await updateStaffCredentialPublicCertificate({ credentialId: serviceId, file })
+      : await updateStaffServicePublicCertificate({ serviceId, file });
+    if (result.error) {
+      setReviewState({ saving: false, error: result.error, notice: '' });
+      return;
+    }
+    setReviewState({ saving: false, error: '', notice: isCredential ? 'Credential public certificate preview saved.' : 'Service public certificate preview saved.' });
+    setCertificateMaskService(null);
+    await reloadServices();
+  };
+
   const handleCreateBlock = async (event) => {
     event.preventDefault();
     if (!selectedSuspensionAccount || blockForm.userId !== selectedSuspensionAccount.id) {
@@ -376,14 +411,30 @@ export default function StaffDashboardView() {
     await reloadSuspensionWorkspace();
   };
 
-  const handleServiceDecision = async (serviceId, status) => {
+  const handleMarkRiskReviewed = async (userId) => {
     setReviewState({ saving: true, error: '', notice: '' });
-    const result = await updateStaffServiceRequestReview({ serviceId, status });
+    const result = await markSuspensionRiskReviewed({ userId });
     if (result.error) {
       setReviewState({ saving: false, error: result.error, notice: '' });
       return;
     }
-    setReviewState({ saving: false, error: '', notice: `Service ${status.toLowerCase()}.` });
+    setReviewState({ saving: false, error: '', notice: 'Risk profile marked reviewed and removed from the review queue.' });
+    await reloadSuspensionWorkspace();
+  };
+
+  const handleServiceDecision = async (serviceId, status, instructorMessage = '') => {
+    setReviewState({ saving: true, error: '', notice: '' });
+    const request = serviceState.data.find((item) => item.id === serviceId);
+    const isCredential = request?.requestType === 'credential';
+    const result = isCredential
+      ? await updateStaffCredentialRequestReview({ credentialId: serviceId, status, instructorMessage })
+      : await updateStaffServiceRequestReview({ serviceId, status, instructorMessage });
+    if (result.error) {
+      setReviewState({ saving: false, error: result.error, notice: '' });
+      return;
+    }
+    const statusLabel = status === 'needs_info' ? 'marked as needing more information' : status.toLowerCase();
+    setReviewState({ saving: false, error: '', notice: `${isCredential ? 'Credential' : 'Service'} ${statusLabel}.` });
     await reloadServices();
   };
 
@@ -402,9 +453,20 @@ export default function StaffDashboardView() {
     await reloadPostModeration();
   };
 
-  const handleComplaintDecision = async ({ complaintId, status, severity, staffNote, priority, assignedTeam, slaDueAt }) => {
+  const handleClaimComplaint = async (complaintId) => {
     setReviewState({ saving: true, error: '', notice: '' });
-    const result = await updateComplaintReview({ complaintId, status, severity, staffNote, priority, assignedTeam, slaDueAt });
+    const result = await claimComplaint({ complaintId });
+    if (result.error) {
+      setReviewState({ saving: false, error: result.error, notice: '' });
+      return;
+    }
+    setReviewState({ saving: false, error: '', notice: 'Complaint claimed.' });
+    await reloadComplaints();
+  };
+
+  const handleComplaintDecision = async ({ complaintId, status, severity, staffNote, priority }) => {
+    setReviewState({ saving: true, error: '', notice: '' });
+    const result = await updateComplaintReview({ complaintId, status, severity, staffNote, priority });
     if (result.error) {
       setReviewState({ saving: false, error: result.error, notice: '' });
       return;
@@ -421,6 +483,17 @@ export default function StaffDashboardView() {
       return;
     }
     setReviewState({ saving: false, error: '', notice: 'Message sent as GuideNextdoor Support.' });
+    await reloadComplaints();
+  };
+
+  const handleComplaintTargetAction = async ({ complaintId, action, reasonCategory, staffNote }) => {
+    setReviewState({ saving: true, error: '', notice: '' });
+    const result = await moderateComplaintTarget({ complaintId, action, reasonCategory, staffNote });
+    if (result.error) {
+      setReviewState({ saving: false, error: result.error, notice: '' });
+      return;
+    }
+    setReviewState({ saving: false, error: '', notice: action === 'remove_comment' ? 'Reported comment removed.' : 'Reported post removed.' });
     await reloadComplaints();
   };
 
@@ -459,9 +532,26 @@ export default function StaffDashboardView() {
       setReviewState({ saving: false, error: result.error, notice: '' });
       return;
     }
-    setReviewState({ saving: false, error: '', notice: 'Staff access updated.' });
+    setReviewState({ saving: false, error: '', notice: 'Staff account created. The staff member must change the temporary password on first login.' });
     setStaffModal({ type: '', member: null });
     await reloadDirectory();
+  };
+
+  const handleCompleteFirstPasswordChange = async ({ newPassword }) => {
+    setReviewState({ saving: true, error: '', notice: '' });
+    const result = await completeStaffFirstPasswordChange(newPassword);
+    if (result.error) {
+      setReviewState({ saving: false, error: result.error, notice: '' });
+      return;
+    }
+    const contextResult = await fetchCurrentStaffContext();
+    setStaffState((current) => ({
+      ...current,
+      context: contextResult.data || current.context,
+      error: contextResult.error || '',
+      loading: false,
+    }));
+    setReviewState({ saving: false, error: '', notice: 'Password updated.' });
   };
 
   const handleUpdateStaff = async (payload) => {
@@ -499,7 +589,9 @@ export default function StaffDashboardView() {
 
       <div className="mb-5 overflow-x-auto rounded-lg bg-white p-1 shadow-sm">
         <div className="flex min-w-max gap-1">
-          {visibleTabs.map(({ key, label, icon: Icon }) => (
+          {visibleTabs.map(({ key, label, icon: Icon }) => {
+            const count = key === 'complaints' ? unclaimedComplaintCount : 0;
+            return (
             <button
               key={key}
               type="button"
@@ -515,8 +607,14 @@ export default function StaffDashboardView() {
             >
               <Icon size={16} />
               {label}
+              {count > 0 && (
+                <span className={`grid min-h-5 min-w-5 place-items-center rounded-full px-1.5 text-[10px] font-black ${activeTab === key ? 'bg-white text-gnd-red' : 'bg-gnd-red text-white'}`}>
+                  {count}
+                </span>
+              )}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -553,6 +651,8 @@ export default function StaffDashboardView() {
           setQueueFilter={setComplaintQueueFilter}
           saving={reviewState.saving}
           onDecision={handleComplaintDecision}
+          onClaim={handleClaimComplaint}
+          onTargetAction={handleComplaintTargetAction}
           onMessage={handleComplaintMessage}
           onSendToSuspension={handleSendComplaintToSuspension}
         />
@@ -568,6 +668,7 @@ export default function StaffDashboardView() {
           setQueueFilter={setServiceQueueFilter}
           saving={reviewState.saving}
           onDecision={handleServiceDecision}
+          onMaskCertificate={(service) => service && setCertificateMaskService(service)}
         />
       )}
 
@@ -586,6 +687,7 @@ export default function StaffDashboardView() {
           onSelectAccount={selectSuspensionAccount}
           onCreateBlock={handleCreateBlock}
           onLiftBlock={handleLiftBlock}
+          onMarkRiskReviewed={handleMarkRiskReviewed}
         />
       )}
 
@@ -644,6 +746,25 @@ export default function StaffDashboardView() {
           onSave={handleSavePublicCertificate}
         />
       )}
+      {certificateMaskService && (
+        <CertificateMaskModal
+          certificate={{
+            id: certificateMaskService.id,
+            certificateUrl: certificateMaskService.rawCertUrl,
+            title: certificateMaskService.title,
+          }}
+          saving={reviewState.saving}
+          onClose={() => setCertificateMaskService(null)}
+          onSave={handleSaveServicePublicCertificate}
+        />
+      )}
+      {staffState.context.member?.forcePasswordChange && (
+        <ForcePasswordChangeModal
+          saving={reviewState.saving}
+          error={reviewState.error}
+          onSubmit={handleCompleteFirstPasswordChange}
+        />
+      )}
     </section>
   );
 }
@@ -697,8 +818,8 @@ function ApplicationsPanel({
   }, [applicationState.loading, effectiveSelected?.id, filteredApplications, setSelectedApplicationId, applyApplicationDraft]);
 
   return (
-    <section className="grid gap-5 lg:grid-cols-[380px_minmax(0,1fr)]">
-      <aside className="rounded-lg bg-white p-4 shadow-lg shadow-red-900/5">
+    <section className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+      <aside className="min-w-0 rounded-lg bg-white p-4 shadow-lg shadow-red-900/5">
         <label className="grid gap-2">
           <span className="text-xs font-black uppercase tracking-widest text-gnd-gray">Application queue</span>
           <select
@@ -714,7 +835,7 @@ function ApplicationsPanel({
           </select>
         </label>
 
-        <div className="mt-4 grid gap-3 lg:max-h-[calc(100vh-245px)] lg:overflow-y-auto">
+        <div className="mt-4 grid min-w-0 gap-3 lg:max-h-[calc(100vh-245px)] lg:overflow-y-auto">
           {applicationState.loading && (
             <div className="grid h-48 place-items-center rounded-lg bg-gnd-cream">
               <Loader2 className="animate-spin text-gnd-red" size={28} />
@@ -912,7 +1033,9 @@ function ApplicationDetail({
   );
 }
 
-function CertificateMaskModal({ application, saving, onClose, onSave }) {
+function CertificateMaskModal({ application = null, certificate = null, saving, onClose, onSave }) {
+  const target = application || certificate;
+  const certificateUrl = target?.certificateUrl || '';
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
   const [rects, setRects] = useState([]);
@@ -933,8 +1056,8 @@ function CertificateMaskModal({ application, saving, onClose, onSave }) {
       drawMaskedCertificate(canvas, image, [], null);
     };
     image.onerror = () => setError('Could not load the certificate image for masking.');
-    image.src = application.certificateUrl;
-  }, [application.certificateUrl]);
+    image.src = certificateUrl;
+  }, [certificateUrl]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -988,8 +1111,8 @@ function CertificateMaskModal({ application, saving, onClose, onSave }) {
           setError('Could not create the public certificate preview.');
           return;
         }
-        const file = new File([blob], `public-certificate-${application.id}.jpg`, { type: 'image/jpeg' });
-        onSave({ applicationId: application.id, file });
+        const file = new File([blob], `public-certificate-${target.id}.jpg`, { type: 'image/jpeg' });
+        onSave({ applicationId: application?.id, serviceId: certificate?.id, file });
       }, 'image/jpeg', 0.9);
     } catch (saveError) {
       setError(saveError?.message || 'Could not save the public certificate preview.');
@@ -1047,6 +1170,7 @@ function ServiceOpsPanel({
   setQueueFilter,
   saving,
   onDecision,
+  onMaskCertificate,
 }) {
   const services = serviceState.data || [];
   const filteredServices = filterServicesByQueue(services, queueFilter);
@@ -1054,15 +1178,21 @@ function ServiceOpsPanel({
     || (filteredServices.some((service) => service.id === selectedService?.id) ? selectedService : null);
   const queueCounts = {
     pending: services.filter((service) => normalizeServiceStatusKey(service.status) === 'pending').length,
+    service: services.filter((service) => service.requestType !== 'credential' && normalizeServiceStatusKey(service.status) === 'pending').length,
+    credential: services.filter((service) => service.requestType === 'credential' && normalizeServiceStatusKey(service.status) === 'pending').length,
+    needs_info: services.filter((service) => normalizeServiceStatusKey(service.status) === 'needs_info').length,
     approved: services.filter((service) => normalizeServiceStatusKey(service.status) === 'approved').length,
     rejected: services.filter((service) => normalizeServiceStatusKey(service.status) === 'rejected').length,
     all: services.length,
   };
   const queueOptions = [
-    ['pending', 'Pending requests'],
-    ['approved', 'Approved services'],
-    ['rejected', 'Rejected services'],
-    ['all', 'All services'],
+    ['pending', 'Pending review'],
+    ['service', 'New services'],
+    ['credential', 'Credential updates'],
+    ['needs_info', 'Needs info'],
+    ['approved', 'Approved'],
+    ['rejected', 'Rejected'],
+    ['all', 'All requests'],
   ];
 
   useEffect(() => {
@@ -1075,7 +1205,7 @@ function ServiceOpsPanel({
     <section className="grid gap-5 lg:grid-cols-[380px_minmax(0,1fr)]">
       <aside className="rounded-lg bg-white p-4 shadow-lg shadow-red-900/5">
         <label className="grid gap-2">
-          <span className="text-xs font-black uppercase tracking-widest text-gnd-gray">Service queue</span>
+          <span className="text-xs font-black uppercase tracking-widest text-gnd-gray">Approval queue</span>
           <select
             value={queueFilter}
             onChange={(event) => setQueueFilter(event.target.value)}
@@ -1107,15 +1237,16 @@ function ServiceOpsPanel({
             >
               <div className="flex min-w-0 items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="line-clamp-2 break-words text-sm font-black leading-5 text-gnd-dark">{service.title}</p>
+                  <p className="line-clamp-2 break-words text-sm font-black leading-5 text-gnd-dark">{service.requestType === 'credential' ? service.qualification : service.title}</p>
                   <p className="mt-1 truncate text-xs font-bold text-gnd-gray">{service.coachName}</p>
                 </div>
                 <div className="shrink-0">
                   <ServiceStatusBadge status={service.status} compact />
                 </div>
               </div>
-              <p className="mt-3 line-clamp-2 break-words text-xs font-bold leading-5 text-gnd-gray">{service.qualification || service.description || 'No qualification provided.'}</p>
+              <p className="mt-3 line-clamp-2 break-words text-xs font-bold leading-5 text-gnd-gray">{service.requestType === 'credential' ? service.title : service.qualification || service.description || 'No qualification provided.'}</p>
               <div className="mt-3 flex min-w-0 flex-wrap gap-1.5">
+                <span className="max-w-full truncate rounded-md bg-gnd-cream px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gnd-gray">{service.requestType === 'credential' ? 'credential' : 'service'}</span>
                 {!service.rawCertUrl && (
                   <span className="max-w-full truncate rounded-md bg-red-50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gnd-red">missing cert</span>
                 )}
@@ -1126,13 +1257,13 @@ function ServiceOpsPanel({
             </button>
           ))}
           {!serviceState.loading && !serviceState.error && !filteredServices.length && (
-            <p className="rounded-lg bg-gnd-cream px-4 py-3 text-sm font-bold text-gnd-gray">No services in this queue.</p>
+            <p className="rounded-lg bg-gnd-cream px-4 py-3 text-sm font-bold text-gnd-gray">No requests in this queue.</p>
           )}
         </div>
       </aside>
 
       {effectiveSelected ? (
-        <ServiceDetail service={effectiveSelected} saving={saving} onDecision={onDecision} />
+        <ServiceDetail service={effectiveSelected} saving={saving} onDecision={onDecision} onMaskCertificate={onMaskCertificate} />
       ) : (
         <ServiceDetailPlaceholder hasServices={services.length > 0} />
       )}
@@ -1145,26 +1276,35 @@ function ServiceDetailPlaceholder({ hasServices }) {
     <article className="grid min-h-[360px] place-items-center rounded-lg bg-white p-6 text-center shadow-lg shadow-red-900/5">
       <div className="max-w-sm">
         <Plus className="mx-auto text-gnd-gray" size={36} />
-        <p className="mt-3 text-lg font-black text-gnd-dark">{hasServices ? 'Select a service' : 'No service requests yet'}</p>
+        <p className="mt-3 text-lg font-black text-gnd-dark">{hasServices ? 'Select a request' : 'No approval requests yet'}</p>
         <p className="mt-2 text-sm font-bold leading-6 text-gnd-gray">
           {hasServices
-            ? 'Choose a service from the queue to review coach details, credential evidence, locations, pricing, and approval actions.'
-            : 'Instructor-submitted service requests will appear in the queue on the left.'}
+            ? 'Choose a request from the queue to review coach details, credential evidence, locations, pricing, and approval actions.'
+            : 'Instructor-submitted service and credential requests will appear in the queue on the left.'}
         </p>
       </div>
     </article>
   );
 }
 
-function ServiceDetail({ service, saving, onDecision }) {
-  const isPending = normalizeServiceStatusKey(service.status) === 'pending';
+function ServiceDetail({ service, saving, onDecision, onMaskCertificate }) {
+  const statusKey = normalizeServiceStatusKey(service.status);
+  const isReviewable = statusKey === 'pending' || statusKey === 'needs_info';
+  const isCredential = service.requestType === 'credential';
+  const needsPublicCertificate = isCredential && service.rawCertUrl && !service.maskedCertUrl;
+  const [instructorMessage, setInstructorMessage] = useState('');
+  const requiresMessage = !instructorMessage.trim();
+  const locationNames = (service.locations || [])
+    .map((location) => location.name || location.formattedAddress || location.formatted_address)
+    .filter(Boolean);
 
   return (
     <article className="rounded-lg bg-white p-5 shadow-lg shadow-red-900/5 md:p-6">
       <div className="flex flex-col gap-4 border-b border-gnd-cream pb-5 md:flex-row md:items-start md:justify-between">
         <div>
           <ServiceStatusBadge status={service.status} />
-          <h2 className="mt-3 text-2xl font-black text-gnd-dark">{service.title}</h2>
+          <p className="mt-3 text-xs font-black uppercase tracking-widest text-gnd-red">{isCredential ? 'Credential update' : 'Service request'}</p>
+          <h2 className="mt-1 text-2xl font-black text-gnd-dark">{isCredential ? service.qualification : service.title}</h2>
           <p className="mt-1 text-sm font-bold text-gnd-gray">{service.coachName} {service.coachEmail ? `/ ${service.coachEmail}` : ''}</p>
         </div>
       </div>
@@ -1179,33 +1319,62 @@ function ServiceDetail({ service, saving, onDecision }) {
           <Detail label="Activity" value={service.title} />
           <Detail label="Qualification" value={service.qualification} />
           <Detail label="Attainment year" value={service.attainmentYear} />
-          <Detail label="Submitted" value={formatDate(service.createdAt)} />
         </InfoPanel>
-        <InfoPanel title="Service details">
-          <Detail label="Description" value={service.description} />
-          <Detail label="Minimum duration" value={`${service.minDurationHours || 1} hour(s)`} />
-          <Detail label="Locations" value={(service.locations || []).map((location) => location.name).join(', ')} />
-        </InfoPanel>
-        <InfoPanel title="Pricing">
-          {(service.pricing || []).length ? service.pricing.map((tier, index) => (
-            <Detail key={tier.id || index} label={tier.skillLevel || `Tier ${index + 1}`} value={`${tier.currency || service.currency} ${tier.price1 || '-'}${tier.price2 ? ` / ${tier.price2}` : ''}${tier.price3 ? ` / ${tier.price3}` : ''}${tier.price4 ? ` / ${tier.price4}` : ''}`} />
-          )) : <Detail label="Pricing" value={service.minPrice ? `${service.currency} ${service.minPrice}` : ''} />}
-        </InfoPanel>
+        {!isCredential && (
+          <InfoPanel title="Service details">
+            <Detail label="Description" value={service.description} />
+            <Detail label="Minimum duration" value={`${service.minDurationHours || 1} hour(s)`} />
+            <Detail label="Locations" value={locationNames.join(', ')} />
+          </InfoPanel>
+        )}
+        {!isCredential && (
+          <InfoPanel title="Pricing">
+            {(service.pricing || []).length ? service.pricing.map((tier, index) => (
+              <Detail key={tier.id || index} label={formatPricingLevel(tier, service.pricing.length)} value={formatPricingValue(tier, service.currency)} />
+            )) : <Detail label="Pricing" value={service.minPrice ? `${service.currency} ${service.minPrice}` : ''} />}
+          </InfoPanel>
+        )}
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <ImagePanel title="Original certificate" url={service.rawCertUrl} />
-        <ImagePanel title="Public certificate" url={service.maskedCertUrl} />
+        <ImagePanel
+          title="Public certificate"
+          url={service.maskedCertUrl}
+          action={service.rawCertUrl ? {
+            label: service.maskedCertUrl ? 'Edit public preview' : 'Mask public preview',
+            onClick: () => onMaskCertificate(service),
+          } : null}
+        />
       </div>
 
-      {isPending && (
+      {!isCredential && (
+        <div className="mt-5">
+          <ImageGalleryPanel title="Activity photos" urls={service.activityImageUrls || []} />
+        </div>
+      )}
+
+      {isReviewable && (
         <section className="mt-6 rounded-lg border border-gnd-cream p-4">
           <h3 className="text-lg font-black text-gnd-dark">Review decision</h3>
-          <p className="mt-1 text-sm font-bold leading-6 text-gnd-gray">Approved services become active and visible on Search. Rejected services stay hidden from public booking.</p>
+          <p className="mt-1 text-sm font-bold leading-6 text-gnd-gray">{isCredential ? 'Approved credentials appear on the instructor public profile after the public certificate preview is saved.' : 'Approved services become active and visible on Search. Rejected services stay hidden from public booking.'}</p>
+          <label className="mt-4 grid gap-2">
+            <span className="text-xs font-black uppercase tracking-widest text-gnd-gray">Message to instructor</span>
+            <textarea
+              value={instructorMessage}
+              onChange={(event) => setInstructorMessage(event.target.value)}
+              rows={4}
+              className="w-full rounded-lg border border-gnd-cream bg-white px-3 py-2 text-sm font-bold text-gnd-dark outline-none transition focus:border-gnd-red"
+              placeholder="Explain the rejection reason or request the exact missing information. This will be sent from GuideNextdoor in chat."
+            />
+          </label>
           <div className="mt-4 flex flex-wrap gap-2">
-            <DecisionButton icon={CheckCircle2} label="Approve service" disabled={saving} onClick={() => onDecision(service.id, 'approved')} tone="approve" />
-            <DecisionButton icon={XCircle} label="Reject service" disabled={saving} onClick={() => onDecision(service.id, 'rejected')} tone="reject" />
+            <DecisionButton icon={CheckCircle2} label={isCredential ? 'Approve credential' : 'Approve service'} disabled={saving || needsPublicCertificate} onClick={() => onDecision(service.id, 'approved', instructorMessage)} tone="approve" />
+            <DecisionButton icon={MessageSquare} label="Request info" disabled={saving || requiresMessage} onClick={() => onDecision(service.id, 'needs_info', instructorMessage)} />
+            <DecisionButton icon={XCircle} label={isCredential ? 'Reject credential' : 'Reject service'} disabled={saving || requiresMessage} onClick={() => onDecision(service.id, 'rejected', instructorMessage)} tone="reject" />
           </div>
+          {needsPublicCertificate && <p className="mt-2 text-xs font-bold text-gnd-red">Save a public certificate preview before approving this credential.</p>}
+          {requiresMessage && <p className="mt-2 text-xs font-bold text-gnd-gray">A message is required before rejecting or requesting more information.</p>}
         </section>
       )}
     </article>
@@ -1221,6 +1390,8 @@ function ComplaintsPanel({
   setQueueFilter,
   saving,
   onDecision,
+  onClaim,
+  onTargetAction,
   onMessage,
   onSendToSuspension,
 }) {
@@ -1272,20 +1443,28 @@ function ComplaintsPanel({
               key={complaint.id}
               type="button"
               onClick={() => setSelectedComplaintId(complaint.id)}
-              className={`rounded-lg border bg-white p-4 text-left shadow-sm transition hover:border-gnd-red/30 ${complaint.id === selectedComplaintId ? 'border-gnd-red ring-2 ring-gnd-red/10' : 'border-gnd-cream'}`}
+              className={`w-full min-w-0 overflow-hidden rounded-lg border bg-white p-4 text-left shadow-sm transition hover:border-gnd-red/30 ${complaint.id === selectedComplaintId ? 'border-gnd-red ring-2 ring-gnd-red/10' : 'border-gnd-cream'}`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-black text-gnd-dark">{complaint.reasonLabel}</p>
-                  <p className="mt-1 truncate text-xs font-bold text-gnd-gray">{complaint.targetType} · {complaint.displayDate}</p>
+                  <p className="mt-1 truncate text-xs font-bold text-gnd-gray">{formatComplaintTargetLabel(complaint)} · {complaint.displayDate}</p>
                 </div>
-                <ComplaintBadge value={complaint.status} />
+                <span className="shrink-0">
+                  <ComplaintBadge value={complaint.status} />
+                </span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <div className="mt-2 flex min-w-0 flex-wrap gap-1.5">
                 <ComplaintBadge value={complaint.severity} severity />
-                <span className="rounded-md bg-gnd-cream px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gnd-gray">{complaint.priority}</span>
+                <span className="max-w-full truncate rounded-md bg-gnd-cream px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gnd-gray">{complaint.priority}</span>
+                {complaint.assignedStaffName && (
+                  <span className="max-w-full truncate rounded-md bg-green-50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-green-700">Claimed</span>
+                )}
               </div>
-              <p className="mt-3 line-clamp-2 text-xs font-bold leading-5 text-gnd-gray">{complaint.description || 'No description provided.'}</p>
+              {complaint.assignedStaffName && (
+                <p className="mt-2 max-w-full truncate text-[11px] font-black uppercase tracking-widest text-gnd-gray">Claimed by {complaint.assignedStaffName}</p>
+              )}
+              <p className="mt-3 line-clamp-2 break-words text-xs font-bold leading-5 text-gnd-gray">{complaint.description || 'No description provided.'}</p>
             </button>
           ))}
           {!complaintsState.loading && !complaintsState.error && !filteredComplaints.length && (
@@ -1296,10 +1475,12 @@ function ComplaintsPanel({
 
       {selectedComplaint ? (
         <ComplaintDetail
-          key={selectedComplaint.id}
+          key={`${selectedComplaint.id}-${selectedComplaint.reporterNickname || selectedComplaint.reporterName || ''}-${selectedComplaint.reportedNickname || selectedComplaint.reportedName || ''}`}
           complaint={selectedComplaint}
           saving={saving}
           onDecision={onDecision}
+          onClaim={onClaim}
+          onTargetAction={onTargetAction}
           onMessage={onMessage}
           onSendToSuspension={onSendToSuspension}
         />
@@ -1326,16 +1507,17 @@ function ComplaintDetailPlaceholder({ hasComplaints }) {
   );
 }
 
-function ComplaintDetail({ complaint, saving, onDecision, onMessage, onSendToSuspension }) {
+function ComplaintDetail({ complaint, saving, onDecision, onClaim, onTargetAction, onMessage, onSendToSuspension }) {
   const [form, setForm] = useState({
     severity: complaint.severity === 'unassigned' ? 'medium' : complaint.severity,
     priority: complaint.priority || 'normal',
-    assignedTeam: complaint.assignedTeam || '',
-    slaDueAt: toDateTimeLocalValue(complaint.slaDueAt),
     staffNote: complaint.staffNote || '',
     reporterMessage: defaultComplaintMessage('reporter', complaint),
     reportedMessage: defaultComplaintMessage('reported', complaint),
   });
+  const evidenceRows = buildComplaintEvidenceRows(complaint);
+  const assigneeLabel = complaint.assignedStaffName || complaint.assignedStaffEmail || '';
+  const targetAction = complaintTargetAction(complaint);
   const submitDecision = (status) => {
     onDecision({
       complaintId: complaint.id,
@@ -1343,8 +1525,6 @@ function ComplaintDetail({ complaint, saving, onDecision, onMessage, onSendToSus
       severity: form.severity,
       staffNote: form.staffNote,
       priority: form.priority,
-      assignedTeam: form.assignedTeam,
-      slaDueAt: form.slaDueAt ? new Date(form.slaDueAt).toISOString() : '',
     });
   };
 
@@ -1356,9 +1536,18 @@ function ComplaintDetail({ complaint, saving, onDecision, onMessage, onSendToSus
           <h2 className="mt-2 text-2xl font-black text-gnd-dark">{complaint.reasonLabel}</h2>
           <p className="mt-2 text-sm font-bold leading-6 text-gnd-gray">{complaint.description || 'No description provided.'}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <ComplaintBadge value={complaint.status} />
-          <ComplaintBadge value={complaint.severity} severity />
+        <div className="flex flex-col items-start gap-2 md:items-end">
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            <ComplaintBadge value={complaint.status} />
+            <ComplaintBadge value={complaint.severity} severity />
+          </div>
+          {assigneeLabel ? (
+            <p className="rounded-lg bg-green-50 px-3 py-2 text-xs font-black text-green-700">Claimed by {assigneeLabel}</p>
+          ) : (
+            <button type="button" disabled={saving} onClick={() => onClaim(complaint.id)} className="rounded-lg bg-gnd-dark px-4 py-3 text-xs font-black text-white disabled:opacity-40">
+              Claim complaint
+            </button>
+          )}
         </div>
       </div>
 
@@ -1370,13 +1559,22 @@ function ComplaintDetail({ complaint, saving, onDecision, onMessage, onSendToSus
         <InfoPanel title="Reported account">
           <Detail label="Name" value={complaint.reportedName || 'Not linked'} />
           <Detail label="Email" value={complaint.reportedEmail || 'Not linked'} />
-          <Detail label="User ID" value={complaint.reportedUserId || 'Not linked'} />
         </InfoPanel>
+      </div>
+
+      <div className="mt-3">
         <InfoPanel title="Evidence">
-          <Detail label="Target" value={`${complaint.targetType}${complaint.targetId ? ` · ${complaint.targetId}` : ''}`} />
+          <Detail label="Target" value={formatComplaintTargetLabel(complaint)} />
           <Detail label="Evidence link" value={complaint.evidenceUrl || 'Not provided'} />
-          <pre className="mt-3 max-h-44 overflow-auto rounded-lg bg-gnd-cream p-3 text-xs font-bold text-gnd-gray">{JSON.stringify(complaint.evidenceMetadata || {}, null, 2)}</pre>
+          <div className="mt-3 grid gap-2">
+            {evidenceRows.map((row) => (
+              <Detail key={row.label} label={row.label} value={row.value} />
+            ))}
+          </div>
         </InfoPanel>
+      </div>
+
+      <div className="mt-3">
         <InfoPanel title="Review">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-2">
@@ -1397,14 +1595,31 @@ function ComplaintDetail({ complaint, saving, onDecision, onMessage, onSendToSus
               </select>
             </label>
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <Field label="Assigned team" value={form.assignedTeam} onChange={(value) => setForm((current) => ({ ...current, assignedTeam: value }))} />
-            <Field label="SLA due" type="datetime-local" value={form.slaDueAt} onChange={(value) => setForm((current) => ({ ...current, slaDueAt: value }))} />
-          </div>
           <label className="mt-3 grid gap-2">
             <span className="text-xs font-black uppercase tracking-widest text-gnd-gray">Staff note</span>
             <textarea rows={5} value={form.staffNote} onChange={(event) => setForm((current) => ({ ...current, staffNote: event.target.value }))} className="rounded-lg bg-gnd-cream px-4 py-3 text-sm font-bold outline-none" />
           </label>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <DecisionButton icon={CheckCircle2} label="Valid - investigate" disabled={saving} onClick={() => submitDecision('in_review')} tone="approve" />
+            <DecisionButton icon={XCircle} label="Dismiss" disabled={saving} onClick={() => submitDecision('dismissed')} tone="reject" />
+            <DecisionButton icon={CheckCircle2} label="Resolve" disabled={saving} onClick={() => submitDecision('resolved')} tone="approve" />
+            <DecisionButton icon={MessageSquare} label="Needs info" disabled={saving} onClick={() => submitDecision('needs_more_info')} />
+            <DecisionButton icon={UserLock} label="Send to suspension" disabled={saving || !complaint.reportedUserId} onClick={() => onSendToSuspension(complaint.id)} tone="reject" />
+            {targetAction && (
+              <DecisionButton
+                icon={Trash2}
+                label={targetAction.label}
+                disabled={saving || !targetAction.id}
+                onClick={() => onTargetAction({
+                  complaintId: complaint.id,
+                  action: targetAction.action,
+                  reasonCategory: form.priority === 'urgent' ? 'safety_review' : complaint.reasonCategory || 'policy_violation',
+                  staffNote: form.staffNote,
+                })}
+                tone="reject"
+              />
+            )}
+          </div>
         </InfoPanel>
       </div>
 
@@ -1429,13 +1644,6 @@ function ComplaintDetail({ complaint, saving, onDecision, onMessage, onSendToSus
         </div>
       </section>
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        <DecisionButton icon={CheckCircle2} label="Valid - investigate" disabled={saving} onClick={() => submitDecision('in_review')} tone="approve" />
-        <DecisionButton icon={XCircle} label="Dismiss" disabled={saving} onClick={() => submitDecision('dismissed')} tone="reject" />
-        <DecisionButton icon={CheckCircle2} label="Resolve" disabled={saving} onClick={() => submitDecision('resolved')} tone="approve" />
-        <DecisionButton icon={MessageSquare} label="Needs info" disabled={saving} onClick={() => submitDecision('needs_more_info')} />
-        <DecisionButton icon={UserLock} label="Send to suspension" disabled={saving || !complaint.reportedUserId} onClick={() => onSendToSuspension(complaint.id)} tone="reject" />
-      </div>
     </article>
   );
 }
@@ -1452,8 +1660,66 @@ function filterComplaintsByQueue(complaints, queueFilter) {
   return complaints.filter((complaint) => statuses.includes(complaint.status));
 }
 
+function formatComplaintTargetLabel(complaint) {
+  const metadata = complaint.evidenceMetadata || {};
+  const type = String(metadata.raw_target_type || complaint.targetType || 'other').toLowerCase();
+  if (type === 'comment') return metadata.author_name ? `Reported comment by ${metadata.author_name}` : 'Reported comment';
+  if (type === 'post') return metadata.author_name ? `Post by ${metadata.author_name}` : 'Reported post';
+  if (type === 'profile') return metadata.coach_name || metadata.username ? `Coach profile: ${metadata.coach_name || metadata.username}` : 'Coach profile';
+  if (type === 'booking') return metadata.service_title ? `Booking: ${metadata.service_title}` : 'Booking issue';
+  if (type === 'message') return metadata.other_party_name ? `Chat with ${metadata.other_party_name}` : 'Chat message';
+  if (type === 'service') return metadata.service_title ? `Service: ${metadata.service_title}` : 'Service';
+  if (type === 'user') return complaint.reportedName ? `User account: ${complaint.reportedName}` : 'User account';
+  return labelize(type || 'other');
+}
+
+function buildComplaintEvidenceRows(complaint) {
+  const metadata = complaint.evidenceMetadata || {};
+  const type = String(metadata.raw_target_type || complaint.targetType || 'other').toLowerCase();
+  const rows = [];
+  const add = (label, value) => {
+    if (value !== undefined && value !== null && String(value).trim()) rows.push({ label, value: String(value).trim() });
+  };
+
+  if (type === 'comment') {
+    add('Comment text', metadata.body);
+    add('Comment author', metadata.author_name || complaint.reportedName);
+    add('Related post', metadata.post_title || metadata.caption);
+  } else if (type === 'post') {
+    add('Post caption', metadata.caption);
+    add('Post author', metadata.author_name || complaint.reportedName);
+  } else if (type === 'profile') {
+    add('Coach name', metadata.coach_name || complaint.reportedName);
+    add('Profile username', metadata.username);
+  } else if (type === 'booking') {
+    add('Service', metadata.service_title);
+    add('Learner', metadata.learner_name);
+    add('Booking status', metadata.status ? labelize(metadata.status) : '');
+    add('Lesson date', metadata.lesson_date ? formatDate(metadata.lesson_date) : '');
+  } else if (type === 'message') {
+    add('Chat participant', metadata.other_party_name || complaint.reportedName);
+    add('Last message', metadata.last_message);
+  } else {
+    add('Reported account', complaint.reportedName || complaint.reportedEmail);
+    add('Submitted context', complaint.description);
+  }
+
+  if (!rows.length) rows.push({ label: 'Context', value: 'No additional evidence details were submitted.' });
+  return rows;
+}
+
+function complaintTargetAction(complaint) {
+  const metadata = complaint.evidenceMetadata || {};
+  const type = String(metadata.raw_target_type || complaint.targetType || '').toLowerCase();
+  if (type === 'post') return { action: 'remove_post', label: 'Remove reported post', id: metadata.post_id || complaint.targetId || '' };
+  if (type === 'comment') return { action: 'remove_comment', label: 'Remove reported comment', id: metadata.comment_id || complaint.targetId || '' };
+  return null;
+}
+
 function filterServicesByQueue(services, queueFilter) {
   if (queueFilter === 'all') return services;
+  if (queueFilter === 'service') return services.filter((service) => service.requestType !== 'credential' && normalizeServiceStatusKey(service.status) === 'pending');
+  if (queueFilter === 'credential') return services.filter((service) => service.requestType === 'credential' && normalizeServiceStatusKey(service.status) === 'pending');
   return services.filter((service) => normalizeServiceStatusKey(service.status) === queueFilter);
 }
 
@@ -1461,7 +1727,23 @@ function normalizeServiceStatusKey(status) {
   const value = String(status || 'pending').trim().toLowerCase();
   if (value === 'approved') return 'approved';
   if (value === 'rejected') return 'rejected';
+  if (value === 'needs info' || value === 'needs_info' || value === 'needs_information') return 'needs_info';
   return 'pending';
+}
+
+function formatPricingLevel(tier, tierCount) {
+  const value = String(tier?.skillLevel || '').trim();
+  if (!value) return tierCount === 1 ? 'All Levels' : 'Tier';
+  return value;
+}
+
+function formatPricingValue(tier, fallbackCurrency = 'USD') {
+  const currency = tier?.currency || fallbackCurrency || 'USD';
+  const basePrice = tier?.price1 ?? '-';
+  const extraPersonFee = tier?.extraPersonFee;
+  return extraPersonFee !== undefined && extraPersonFee !== null && extraPersonFee !== ''
+    ? `${currency} ${basePrice} + ${currency} ${extraPersonFee} per extra person`
+    : `${currency} ${basePrice}`;
 }
 
 function filterPostsByQueue(posts, queueFilter) {
@@ -1558,17 +1840,40 @@ function drawMaskedCertificate(canvas, image, rects, draftRect) {
 }
 
 function defaultComplaintMessage(role, complaint) {
+  const nickname = complaintPartyName(role, complaint);
   if (role === 'reported') {
-    return `Hi, GuideNextdoor is reviewing a complaint related to your account. Please reply here with any context or supporting information about this case. Complaint reference: ${complaint.id.slice(0, 8)}.`;
+    return `Hi ${nickname}, GuideNextdoor is reviewing a complaint related to your account. Please reply here with any context or supporting information about this case. Complaint reference: ${complaint.id.slice(0, 8)}.`;
   }
-  return `Hi, GuideNextdoor is reviewing your complaint. Please reply here with any additional details or evidence that may help our team investigate. Complaint reference: ${complaint.id.slice(0, 8)}.`;
+  return `Hi ${nickname}, GuideNextdoor is reviewing your complaint. Please reply here with any additional details or evidence that may help our team investigate. Complaint reference: ${complaint.id.slice(0, 8)}.`;
 }
 
-function toDateTimeLocalValue(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+function complaintPartyName(role, complaint) {
+  const metadata = complaint.evidenceMetadata || {};
+  const candidates = role === 'reported'
+    ? [
+        complaint.reportedNickname,
+        complaint.reportedName,
+        metadata.author_name,
+        metadata.coach_name,
+        metadata.other_party_name,
+        emailName(complaint.reportedEmail),
+      ]
+    : [
+        complaint.reporterNickname,
+        complaint.reporterName,
+        emailName(complaint.reporterEmail),
+      ];
+  return candidates.find(isUsablePersonName) || 'there';
+}
+
+function isUsablePersonName(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return !['guidenextdoor user', 'not linked', 'unknown user'].includes(text.toLowerCase());
+}
+
+function emailName(email) {
+  return String(email || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
 }
 
 function ComplaintBadge({ value, severity = false }) {
@@ -1601,12 +1906,13 @@ function ServiceStatusBadge({ status, compact = false }) {
   const normalized = normalizeServiceStatusKey(status);
   const styles = {
     pending: 'bg-amber-50 text-amber-700 border-amber-100',
+    needs_info: 'bg-purple-50 text-purple-700 border-purple-100',
     approved: 'bg-green-50 text-green-700 border-green-100',
     rejected: 'bg-red-50 text-gnd-red border-red-100',
   };
   return (
     <span className={`inline-flex rounded-md border font-black uppercase tracking-widest ${compact ? 'px-2 py-1 text-[9px]' : 'px-2.5 py-1 text-[10px]'} ${styles[normalized]}`}>
-      {normalized}
+      {normalized.replace('_', ' ')}
     </span>
   );
 }
@@ -1625,7 +1931,9 @@ function UserBlocksPanel({
   onSelectAccount,
   onCreateBlock,
   onLiftBlock,
+  onMarkRiskReviewed,
 }) {
+  const [signalDetail, setSignalDetail] = useState(null);
   const canSubmit = selectedAccount
     && !selectedAccount.isStaff
     && blockForm.userId === selectedAccount.id
@@ -1649,13 +1957,26 @@ function UserBlocksPanel({
         </div>
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
-          <SuspensionReviewQueue queueState={queueState} selectedAccount={selectedAccount} onSelectAccount={onSelectAccount} />
+          <SuspensionReviewQueue
+            queueState={queueState}
+            selectedAccount={selectedAccount}
+            canUnblock={canUnblock}
+            saving={saving}
+            onSelectAccount={onSelectAccount}
+            onOpenSignal={setSignalDetail}
+            onLiftBlock={onLiftBlock}
+            onMarkRiskReviewed={onMarkRiskReviewed}
+          />
           <SuspensionSearchPanel
             searchState={searchState}
             setSearchState={setSearchState}
             selectedAccount={selectedAccount}
+            canUnblock={canUnblock}
+            saving={saving}
             onSearch={onSearch}
             onSelectAccount={onSelectAccount}
+            onLiftBlock={onLiftBlock}
+            onMarkRiskReviewed={onMarkRiskReviewed}
           />
         </div>
       </div>
@@ -1673,7 +1994,6 @@ function UserBlocksPanel({
           )}
 
           <div className={`mt-5 grid gap-3 ${selectedAccount ? '' : 'pointer-events-none opacity-45'}`}>
-            <Field label="User ID" value={blockForm.userId} onChange={(value) => setBlockForm((current) => ({ ...current, userId: value }))} />
             <div className="rounded-lg border border-gnd-cream bg-gnd-cream/50 p-3">
               <p className="text-xs font-black uppercase tracking-widest text-gnd-gray">Suspension scope</p>
               <p className="mt-2 text-sm font-black text-gnd-dark">Full account read-only</p>
@@ -1786,11 +2106,23 @@ function UserBlocksPanel({
         )}
         </div>
       </div>
+      {signalDetail && (
+        <SuspensionSignalModal
+          signal={signalDetail.signal}
+          account={signalDetail.account}
+          saving={saving}
+          onClose={() => setSignalDetail(null)}
+          onMarkReviewed={() => {
+            onMarkRiskReviewed(signalDetail.account.id);
+            setSignalDetail(null);
+          }}
+        />
+      )}
     </section>
   );
 }
 
-function SuspensionReviewQueue({ queueState, selectedAccount, onSelectAccount }) {
+function SuspensionReviewQueue({ queueState, selectedAccount, canUnblock, saving, onSelectAccount, onOpenSignal, onLiftBlock, onMarkRiskReviewed }) {
   return (
     <section className="rounded-lg border border-gnd-cream p-4">
       <div className="flex items-center justify-between gap-3">
@@ -1811,7 +2143,12 @@ function SuspensionReviewQueue({ queueState, selectedAccount, onSelectAccount })
               key={account.id}
               account={account}
               selected={selectedAccount?.id === account.id}
+              canUnblock={canUnblock}
+              saving={saving}
               onSelect={() => onSelectAccount(account)}
+              onOpenSignal={(signal) => onOpenSignal({ account, signal })}
+              onLiftBlock={onLiftBlock}
+              onMarkRiskReviewed={onMarkRiskReviewed}
             />
           ))}
         </div>
@@ -1820,7 +2157,7 @@ function SuspensionReviewQueue({ queueState, selectedAccount, onSelectAccount })
   );
 }
 
-function SuspensionSearchPanel({ searchState, setSearchState, selectedAccount, onSearch, onSelectAccount }) {
+function SuspensionSearchPanel({ searchState, setSearchState, selectedAccount, canUnblock, saving, onSearch, onSelectAccount, onLiftBlock, onMarkRiskReviewed }) {
   return (
     <section className="rounded-lg border border-gnd-cream p-4">
       <h3 className="text-lg font-black text-gnd-dark">Search account</h3>
@@ -1844,7 +2181,11 @@ function SuspensionSearchPanel({ searchState, setSearchState, selectedAccount, o
             account={account}
             selected={selectedAccount?.id === account.id}
             compact
+            canUnblock={canUnblock}
+            saving={saving}
             onSelect={() => onSelectAccount(account)}
+            onLiftBlock={onLiftBlock}
+            onMarkRiskReviewed={onMarkRiskReviewed}
           />
         ))}
         {!searchState.loading && searchState.query && !searchState.data.length && !searchState.error && (
@@ -1855,37 +2196,30 @@ function SuspensionSearchPanel({ searchState, setSearchState, selectedAccount, o
   );
 }
 
-function SuspensionAccountCard({ account, selected, compact = false, onSelect }) {
-  const firstSignal = account.signals?.[0];
+function SuspensionAccountCard({ account, selected, compact = false, canUnblock = false, saving = false, onSelect, onOpenSignal, onLiftBlock, onMarkRiskReviewed }) {
+  const signals = account.signals || [];
   const typeTone = account.isStaff
     ? 'bg-red-50 text-gnd-red'
     : account.accountType === 'instructor'
       ? 'bg-amber-50 text-amber-700'
       : 'bg-gnd-cream text-gnd-gray';
+  const signalLimit = compact ? 2 : 4;
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`rounded-lg border px-3 py-3 text-left transition ${selected ? 'border-gnd-red bg-red-50/40 shadow-sm shadow-red-900/5' : 'border-gnd-cream bg-white hover:border-gnd-red/40'} ${compact ? '' : ''}`}
-    >
-      <div className="flex items-start gap-2.5">
-        <AccountAvatar account={account} size="sm" />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <p className="min-w-0 flex-1 truncate text-sm font-black text-gnd-dark">{account.displayName}</p>
-            <span className={`shrink-0 rounded-md px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${typeTone}`}>
-              {account.accountType}
-            </span>
+    <article className={`rounded-lg border px-3 py-3 text-left transition ${selected ? 'border-gnd-red bg-red-50/40 shadow-sm shadow-red-900/5' : 'border-gnd-cream bg-white hover:border-gnd-red/40'} ${compact ? '' : ''}`}>
+      <button type="button" onClick={onSelect} className="block w-full text-left">
+        <div className="flex items-start gap-2.5">
+          <AccountAvatar account={account} size="sm" />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="min-w-0 flex-1 truncate text-sm font-black text-gnd-dark">{account.displayName}</p>
+              <span className={`shrink-0 rounded-md px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${typeTone}`}>
+                {account.accountType}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-xs font-bold text-gnd-gray">{account.email || account.username || account.id}</p>
           </div>
-          <p className="mt-1 truncate text-xs font-bold text-gnd-gray">{account.email || account.username || account.id}</p>
-          {firstSignal && (
-            <p className="mt-2 line-clamp-1 text-xs font-bold text-gnd-gray">
-              <span className="font-black text-gnd-dark">{firstSignal.label}</span>
-              {firstSignal.detail ? ` - ${firstSignal.detail}` : ''}
-            </p>
-          )}
         </div>
-      </div>
+      </button>
       <div className="mt-3 flex flex-wrap gap-1.5">
         <QueueChip label="Risk" value={account.riskScore || 0} tone={(account.riskScore || 0) >= 4 ? 'risk' : 'neutral'} />
         <QueueChip label="Bookings" value={account.bookingCount || 0} />
@@ -1893,12 +2227,59 @@ function SuspensionAccountCard({ account, selected, compact = false, onSelect })
         {account.serviceCount ? <QueueChip label="Services" value={account.serviceCount} /> : null}
         {account.previousSuspensionCount ? <QueueChip label="Prior" value={account.previousSuspensionCount} tone="risk" /> : null}
       </div>
+      {signals.length ? (
+        <div className="mt-3 grid gap-1.5">
+          {signals.slice(0, signalLimit).map((signal, index) => (
+            <button
+              key={`${signal.type || signal.label}-${signal.createdAt || index}`}
+              type="button"
+              onClick={() => onOpenSignal?.(signal)}
+              className="group rounded-lg bg-gnd-cream/70 px-3 py-2 text-left transition hover:bg-red-50"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-black text-gnd-dark group-hover:text-gnd-red">{signal.label}</p>
+                  <p className="mt-0.5 line-clamp-2 text-[11px] font-bold leading-4 text-gnd-gray">{signal.detail || 'Open details'}</p>
+                </div>
+                <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-gnd-red">View</span>
+              </div>
+            </button>
+          ))}
+          {signals.length > signalLimit && (
+            <p className="px-1 text-[11px] font-bold text-gnd-gray">+{signals.length - signalLimit} more signal{signals.length - signalLimit === 1 ? '' : 's'}</p>
+          )}
+        </div>
+      ) : null}
+      {!account.activeSuspension && signals.length ? (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onMarkRiskReviewed?.(account.id)}
+          className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-gnd-dark px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Mark reviewed
+        </button>
+      ) : null}
       {(account.activeSuspension || account.isStaff) && (
         <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gnd-red">
           {account.isStaff ? 'Staff account: manage internally' : 'Active suspension'}
         </p>
       )}
-    </button>
+      {account.activeSuspension && (
+        <div className="mt-3 flex flex-col gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
+          <p className="text-[11px] font-bold leading-4 text-gnd-red">This account is currently read-only. Uplift here if the issue is resolved.</p>
+          <button
+            type="button"
+            disabled={!canUnblock || saving}
+            onClick={() => onLiftBlock?.(account.activeSuspension.id)}
+            className="inline-flex items-center justify-center rounded-lg bg-gnd-dark px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Uplift suspension
+          </button>
+          {!canUnblock && <p className="text-[11px] font-bold leading-4 text-amber-700">Your staff role does not have uplift permission.</p>}
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -1914,13 +2295,68 @@ function SelectedSuspensionAccount({ account }) {
         <span className="rounded-md bg-white px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gnd-gray">{account.accountType}</span>
       </div>
       <div className="mt-4 grid gap-2 text-xs font-bold text-gnd-gray sm:grid-cols-2">
-        <Detail label="User ID" value={account.id} />
         <Detail label="Username" value={account.username || 'Not set'} />
         <Detail label="Services" value={account.serviceCount || 0} />
         <Detail label="Posts" value={account.postCount || 0} />
         <Detail label="Bookings" value={account.bookingCount || 0} />
         <Detail label="Previous suspensions" value={account.previousSuspensionCount || 0} />
       </div>
+    </div>
+  );
+}
+
+function SuspensionSignalModal({ signal, account, saving, onClose, onMarkReviewed }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-gnd-dark/55 px-4 py-6" onMouseDown={onClose}>
+      <section className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-gnd-cream p-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-gnd-red">Risk signal</p>
+            <h2 className="mt-2 text-xl font-black text-gnd-dark">{signal.label}</h2>
+            <p className="mt-1 text-sm font-bold text-gnd-gray">{account.displayName} / {account.email || account.id}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg bg-gnd-cream p-2 text-gnd-dark hover:text-gnd-red">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="grid gap-4 p-5">
+          <InfoPanel title="Why this was flagged">
+            <Detail label="Signal" value={signal.label} />
+            <Detail label="Type" value={signal.type ? signal.type.replaceAll('_', ' ') : 'Not set'} />
+            <Detail label="Detail" value={signal.detail || 'No detail provided'} />
+            <Detail label="Risk weight" value={signal.weight || 1} />
+            <Detail label="Created" value={signal.createdAt ? formatDate(signal.createdAt) : 'Not available'} />
+          </InfoPanel>
+          <InfoPanel title="Linked records">
+            <Detail label="Complaint ID" value={signal.complaintId || 'Not linked'} />
+            <Detail label="Suspension ID" value={signal.blockId || 'Not linked'} />
+            <Detail label="Service ID" value={signal.serviceId || 'Not linked'} />
+            <Detail label="Comment IDs" value={(signal.commentIds || []).join(', ')} />
+            <Detail label="Booking IDs" value={(signal.bookingIds || []).join(', ')} />
+          </InfoPanel>
+          <p className="rounded-lg bg-gnd-cream px-4 py-3 text-xs font-bold leading-5 text-gnd-gray">
+            This signal is only a review prompt. Staff should verify the evidence and account context before suspending or uplifting an account.
+          </p>
+          {!account.activeSuspension && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={onMarkReviewed}
+              className="inline-flex items-center justify-center rounded-lg bg-gnd-dark px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Mark profile reviewed
+            </button>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -1956,6 +2392,7 @@ function StaffAdminPanel({ directoryState, filters, setFilters, onInvite, onOpen
   const filteredMembers = filterStaffMembers(directoryState.members, filters);
   const summary = {
     active: directoryState.members.filter((member) => member.status === 'active').length,
+    pending: directoryState.members.filter((member) => member.status === 'pending_first_login').length,
     suspended: directoryState.members.filter((member) => member.status === 'suspended').length,
     offboarded: directoryState.members.filter((member) => member.status === 'offboarded').length,
     sensitive: directoryState.members.filter((member) => member.sensitive).length,
@@ -1968,7 +2405,7 @@ function StaffAdminPanel({ directoryState, filters, setFilters, onInvite, onOpen
           <div>
             <h2 className="text-2xl font-black text-gnd-dark">Staff access</h2>
             <p className="mt-2 max-w-2xl text-sm font-bold leading-6 text-gnd-gray">
-              Create, review, suspend, and audit internal GuideNextdoor staff accounts. Staff access is invitation-style and role-based; public learner actions stay disabled for staff accounts.
+              Create, review, suspend, and audit internal GuideNextdoor staff accounts. Staff access is role-based; public learner actions stay disabled for staff accounts.
             </p>
           </div>
           <button type="button" onClick={onInvite} className="inline-flex items-center justify-center gap-2 rounded-lg bg-gnd-red px-4 py-3 text-sm font-black text-white hover:bg-gnd-dark">
@@ -1977,8 +2414,9 @@ function StaffAdminPanel({ directoryState, filters, setFilters, onInvite, onOpen
           </button>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <div className="mt-5 grid gap-3 md:grid-cols-5">
           <MetricCard label="Active staff" value={summary.active} />
+          <MetricCard label="Pending first login" value={summary.pending} />
           <MetricCard label="Suspended" value={summary.suspended} />
           <MetricCard label="Offboarded" value={summary.offboarded} />
           <MetricCard label="Sensitive Roles" value={summary.sensitive} tone="risk" />
@@ -2006,6 +2444,7 @@ function StaffAdminPanel({ directoryState, filters, setFilters, onInvite, onOpen
           </FilterSelect>
           <FilterSelect label="Status" value={filters.status} onChange={(value) => setFilters((current) => ({ ...current, status: value }))}>
             <option value="all">All status</option>
+            <option value="pending_first_login">Pending first login</option>
             <option value="active">Active</option>
             <option value="suspended">Suspended</option>
             <option value="offboarded">Offboarded</option>
@@ -2076,12 +2515,22 @@ function StaffAdminPanel({ directoryState, filters, setFilters, onInvite, onOpen
 }
 
 function StaffInviteModal({ roles, saving, onClose, onSubmit }) {
-  const [form, setForm] = useState({ email: '', displayName: '', department: '', employmentType: 'full_time', roleIds: [] });
+  const [form, setForm] = useState({ email: '', displayName: '', department: '', employmentType: 'full_time', temporaryPassword: '', confirmTemporaryPassword: '', roleIds: [] });
+  const [localError, setLocalError] = useState('');
   const selectedRoles = roles.filter((role) => form.roleIds.includes(role.id));
   const sensitive = selectedRoles.some((role) => ['super_admin', 'it_admin'].includes(role.key));
 
   const submit = (event) => {
     event.preventDefault();
+    if (form.temporaryPassword.length < 8) {
+      setLocalError('Temporary password must be at least 8 characters.');
+      return;
+    }
+    if (form.temporaryPassword !== form.confirmTemporaryPassword) {
+      setLocalError('Temporary passwords do not match.');
+      return;
+    }
+    setLocalError('');
     onSubmit(form);
   };
 
@@ -2100,25 +2549,64 @@ function StaffInviteModal({ roles, saving, onClose, onSubmit }) {
               <option value="contractor">Contractor</option>
             </select>
           </label>
+          <PasswordField label="Temporary password" value={form.temporaryPassword} onChange={(value) => setForm((current) => ({ ...current, temporaryPassword: value }))} />
+          <PasswordField label="Confirm temporary password" value={form.confirmTemporaryPassword} onChange={(value) => setForm((current) => ({ ...current, confirmTemporaryPassword: value }))} />
         </section>
 
         <RoleChecklist roles={roles} selectedRoleIds={form.roleIds} onChange={(roleIds) => setForm((current) => ({ ...current, roleIds }))} />
         <PermissionPreview roles={selectedRoles} />
         {sensitive && <RiskWarning />}
+        {localError && <p className="rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-gnd-red">{localError}</p>}
 
         <div className="rounded-lg bg-gnd-cream/60 p-4">
           <p className="text-sm font-black text-gnd-dark">Internal access confirmation</p>
-          <p className="mt-1 text-xs font-bold leading-5 text-gnd-gray">This creates or invites the staff auth account through the secure server function, then assigns staff roles and writes an audit record.</p>
+          <p className="mt-1 text-xs font-bold leading-5 text-gnd-gray">This creates the staff auth account with the temporary password, assigns staff roles, and forces the staff member to set a new password on first login.</p>
         </div>
 
         <div className="flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onClose} className="rounded-lg bg-gnd-cream px-4 py-3 text-sm font-black text-gnd-dark">Cancel</button>
-          <button type="submit" disabled={saving || !form.email || !form.roleIds.length} className="rounded-lg bg-gnd-red px-4 py-3 text-sm font-black text-white disabled:opacity-40">
+          <button type="submit" disabled={saving || !form.email || !form.temporaryPassword || !form.roleIds.length} className="rounded-lg bg-gnd-red px-4 py-3 text-sm font-black text-white disabled:opacity-40">
             {saving ? 'Saving...' : 'Create staff access'}
           </button>
         </div>
       </form>
     </ModalShell>
+  );
+}
+
+function ForcePasswordChangeModal({ saving, error, onSubmit }) {
+  const [form, setForm] = useState({ newPassword: '', confirmPassword: '' });
+  const [localError, setLocalError] = useState('');
+
+  const submit = (event) => {
+    event.preventDefault();
+    if (form.newPassword.length < 8) {
+      setLocalError('Password must be at least 8 characters.');
+      return;
+    }
+    if (form.newPassword !== form.confirmPassword) {
+      setLocalError('Passwords do not match.');
+      return;
+    }
+    setLocalError('');
+    onSubmit({ newPassword: form.newPassword });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center bg-gnd-dark/60 px-4 py-6">
+      <section className="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl">
+        <h2 className="text-xl font-black text-gnd-dark">Set your staff password</h2>
+        <p className="mt-2 text-sm font-bold leading-6 text-gnd-gray">This is your first staff login. Create a new password before using the staff portal.</p>
+        <form onSubmit={submit} className="mt-5 grid gap-4">
+          <Field label="New password" type="password" value={form.newPassword} onChange={(value) => setForm((current) => ({ ...current, newPassword: value }))} />
+          <Field label="Confirm new password" type="password" value={form.confirmPassword} onChange={(value) => setForm((current) => ({ ...current, confirmPassword: value }))} />
+          {(localError || error) && <p className="rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-gnd-red">{localError || error}</p>}
+          <button type="submit" disabled={saving} className="rounded-lg bg-gnd-red px-4 py-3 text-sm font-black text-white disabled:opacity-40">
+            {saving ? 'Updating...' : 'Update password'}
+          </button>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -2137,6 +2625,17 @@ function StaffDetailModal({ member, roles, saving, onClose, onSubmit }) {
     onSubmit({ staffMemberId: member.id, ...form });
   };
 
+  const submitStatusAction = (nextStatus) => {
+    if (nextStatus === 'offboarded' && !window.confirm(`Offboard ${member.displayName || member.email}? Their staff roles and login access will be disabled.`)) return;
+    if (nextStatus === 'suspended' && !window.confirm(`Suspend ${member.displayName || member.email}? Their staff login access will be disabled until reactivated.`)) return;
+    onSubmit({
+      staffMemberId: member.id,
+      ...form,
+      status: nextStatus,
+      roleIds: nextStatus === 'offboarded' ? [] : form.roleIds,
+    });
+  };
+
   return (
     <ModalShell title="Staff details" onClose={onClose}>
       <form onSubmit={submit} className="grid gap-5">
@@ -2144,7 +2643,7 @@ function StaffDetailModal({ member, roles, saving, onClose, onSubmit }) {
           <Detail label="Email" value={member.email} />
           <Detail label="Created" value={formatDate(member.createdAt)} />
           <Detail label="Last active" value={formatDateTime(member.lastActiveAt)} />
-          <Detail label="Current status" value={member.status} />
+          <Detail label="Current status" value={formatStaffStatus(member.status)} />
         </div>
 
         <section className="grid gap-3 md:grid-cols-2">
@@ -2154,6 +2653,7 @@ function StaffDetailModal({ member, roles, saving, onClose, onSubmit }) {
             <span className="text-sm font-black text-gnd-dark">Account status</span>
             <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className="h-11 rounded-lg bg-gnd-cream px-3 text-sm font-bold outline-none">
               <option value="active">Active</option>
+              <option value="pending_first_login">Pending first login</option>
               <option value="suspended">Suspended</option>
               <option value="offboarded">Offboarded</option>
             </select>
@@ -2163,11 +2663,14 @@ function StaffDetailModal({ member, roles, saving, onClose, onSubmit }) {
         <RoleChecklist roles={roles} selectedRoleIds={form.roleIds} onChange={(roleIds) => setForm((current) => ({ ...current, roleIds }))} />
         <PermissionPreview roles={selectedRoles} />
         {sensitive && <RiskWarning />}
+        <p className="rounded-lg bg-gnd-cream/70 px-4 py-3 text-xs font-bold leading-5 text-gnd-gray">
+          Suspend and Offboard are immediate actions. They update the staff record, write an audit log, and disable the staff auth login until the account is reactivated.
+        </p>
 
         <div className="flex flex-wrap justify-between gap-2">
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setForm((current) => ({ ...current, status: 'suspended' }))} className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-black text-amber-700">Suspend</button>
-            <button type="button" onClick={() => setForm((current) => ({ ...current, status: 'offboarded', roleIds: [] }))} className="rounded-lg bg-red-50 px-4 py-3 text-sm font-black text-gnd-red">Offboard</button>
+            <button type="button" disabled={saving || member.status === 'suspended'} onClick={() => submitStatusAction('suspended')} className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-black text-amber-700 disabled:opacity-40">Suspend</button>
+            <button type="button" disabled={saving || member.status === 'offboarded'} onClick={() => submitStatusAction('offboarded')} className="rounded-lg bg-red-50 px-4 py-3 text-sm font-black text-gnd-red disabled:opacity-40">Offboard</button>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={onClose} className="rounded-lg bg-gnd-cream px-4 py-3 text-sm font-black text-gnd-dark">Cancel</button>
@@ -2281,15 +2784,20 @@ function RoleBadgeList({ roles }) {
 
 function StaffStatusBadge({ status }) {
   const styles = {
+    pending_first_login: 'bg-blue-50 text-blue-700',
     active: 'bg-green-50 text-green-700',
     suspended: 'bg-amber-50 text-amber-700',
     offboarded: 'bg-red-50 text-gnd-red',
   };
   return (
     <span className={`rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${styles[status] || 'bg-gnd-cream text-gnd-gray'}`}>
-      {status || 'unknown'}
+      {formatStaffStatus(status)}
     </span>
   );
+}
+
+function formatStaffStatus(status) {
+  return String(status || 'unknown').replaceAll('_', ' ');
 }
 
 function RiskWarning() {
@@ -2526,6 +3034,8 @@ function PostModerationDetail({ post, saving, onModerate }) {
 }
 
 function AuditPanel({ auditState }) {
+  const [selectedAuditEvent, setSelectedAuditEvent] = useState(null);
+
   return (
     <section className="rounded-lg bg-white p-5 shadow-lg shadow-red-900/5 md:p-6">
       <h2 className="text-2xl font-black text-gnd-dark">Audit history</h2>
@@ -2537,19 +3047,119 @@ function AuditPanel({ auditState }) {
         <p className="mt-4 rounded-lg bg-gnd-cream px-4 py-3 text-sm font-bold text-gnd-gray">No audit events yet.</p>
       ) : (
         <div className="mt-5 grid gap-3">
-          {auditState.data.map((event) => (
-            <div key={event.id} className="rounded-lg border border-gnd-cream p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm font-black text-gnd-dark">{event.action}</p>
-                <p className="text-xs font-bold text-gnd-gray">{formatDateTime(event.createdAt)}</p>
-              </div>
-              <p className="mt-2 text-xs font-bold text-gnd-gray">{event.targetType} {event.targetId}</p>
-            </div>
-          ))}
+          {auditState.data.map((event) => {
+            const display = formatAuditEvent(event);
+            return (
+              <button key={event.id} type="button" onClick={() => setSelectedAuditEvent(event)} className="rounded-lg border border-gnd-cream p-4 text-left transition hover:border-gnd-red/30 hover:bg-gnd-cream/30">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-black text-gnd-dark">{display.title}</p>
+                  <p className="text-xs font-bold text-gnd-gray">{formatDateTime(event.createdAt)}</p>
+                </div>
+                <p className="mt-2 text-sm font-bold leading-6 text-gnd-gray">{display.summary}</p>
+              </button>
+            );
+          })}
         </div>
+      )}
+      {selectedAuditEvent && (
+        <AuditDetailModal event={selectedAuditEvent} onClose={() => setSelectedAuditEvent(null)} />
       )}
     </section>
   );
+}
+
+function AuditDetailModal({ event, onClose }) {
+  const display = formatAuditEvent(event);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-gnd-dark/55 px-4 py-6" onMouseDown={onClose}>
+      <section className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-2xl" onMouseDown={(event_) => event_.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-gnd-cream p-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-gnd-red">Audit record</p>
+            <h2 className="mt-2 text-xl font-black text-gnd-dark">{display.title}</h2>
+            <p className="mt-1 text-sm font-bold leading-6 text-gnd-gray">{display.summary}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg bg-gnd-cream p-2 text-gnd-dark hover:text-gnd-red">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="grid gap-4 p-5">
+          <InfoPanel title="Record details">
+            <Detail label="Staff member" value={event.actorName || event.actorEmail || 'GuideNextdoor staff'} />
+            <Detail label="Affected record" value={event.targetName || event.targetEmail || event.targetLabel || 'GuideNextdoor record'} />
+            <Detail label="When" value={formatDateTime(event.createdAt)} />
+            <Detail label="Action" value={display.title} />
+          </InfoPanel>
+          {(event.actorEmail || event.targetEmail || event.targetType) && (
+            <InfoPanel title="Context">
+              <Detail label="Staff email" value={event.actorEmail || 'Not provided'} />
+              <Detail label="Record email" value={event.targetEmail || 'Not provided'} />
+              <Detail label="Record type" value={event.targetType ? labelize(event.targetType) : 'Not provided'} />
+            </InfoPanel>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function formatAuditEvent(event) {
+  const metadata = event.metadata || {};
+  const action = event.action || '';
+  const title = event.actionLabel && event.actionLabel !== action ? event.actionLabel : auditActionLabel(action);
+  const backendSummary = event.summary && event.summary !== 'Staff action recorded.' ? event.summary : '';
+  return {
+    title,
+    summary: backendSummary || auditSummary(action, metadata),
+  };
+}
+
+function auditActionLabel(action) {
+  const labels = {
+    'user_risk.reviewed': 'Risk profile marked reviewed',
+    'staff.created': 'Staff account created',
+    'staff.updated': 'Staff account updated',
+    'staff.suspended': 'Staff account suspended',
+    'staff.offboarded': 'Staff account offboarded',
+    'user.suspended_temporarily': 'Account temporarily suspended',
+    'user.suspended_permanently': 'Account permanently suspended',
+    'user.unblocked': 'Suspension uplifted',
+    'post.reviewed': 'Post reviewed',
+    'post.removed': 'Post removed',
+    'post.restored': 'Post restored',
+  };
+  return labels[action] || action.split(/[._-]/).filter(Boolean).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+function auditSummary(action, metadata) {
+  if (action === 'user_risk.reviewed') {
+    return 'The profile was reviewed and removed from the Suspension review queue until a newer risk signal appears.';
+  }
+  if (action === 'staff.created') {
+    return `Staff access was created for ${metadata.email || 'a new staff member'}${metadata.department ? ` in ${metadata.department}` : ''}.`;
+  }
+  if (action === 'staff.updated' || action === 'staff.suspended' || action === 'staff.offboarded') {
+    return `Staff access was updated${metadata.displayName ? ` for ${metadata.displayName}` : ''}${metadata.status ? ` to ${metadata.status}` : ''}.`;
+  }
+  if (action.startsWith('user.suspended')) {
+    return `${metadata.reasonCategory ? `${labelize(metadata.reasonCategory)}. ` : ''}${metadata.blockedUntil ? `Suspension ends ${formatDate(metadata.blockedUntil)}.` : 'No automatic end date.'}`;
+  }
+  if (action === 'user.unblocked') return 'The active suspension was uplifted and account access resumed.';
+  if (action.startsWith('post.')) return metadata.moderation_action ? `Post moderation action: ${labelize(metadata.moderation_action)}.` : 'Post moderation action recorded.';
+  return 'Audit event recorded.';
+}
+
+function labelize(value) {
+  return String(value || '').split(/[._-]/).filter(Boolean).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
 function InfoPanel({ title, children }) {
@@ -2570,16 +3180,42 @@ function Detail({ label, value }) {
   );
 }
 
-function ImagePanel({ title, url }) {
+function ImagePanel({ title, url, action = null }) {
   return (
     <section className="rounded-lg border border-gnd-cream p-4">
-      <h3 className="text-sm font-black text-gnd-dark">{title}</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-black text-gnd-dark">{title}</h3>
+        {action && (
+          <button type="button" onClick={action.onClick} className="rounded-md bg-gnd-cream px-3 py-2 text-xs font-black text-gnd-dark hover:text-gnd-red">
+            {action.label}
+          </button>
+        )}
+      </div>
       {url ? (
         <a href={url} target="_blank" rel="noreferrer" className="mt-3 block overflow-hidden rounded-lg bg-gnd-cream">
           <img src={url} alt="" className="max-h-80 w-full object-contain" />
         </a>
       ) : (
         <p className="mt-3 text-sm font-bold text-gnd-gray">No image uploaded</p>
+      )}
+    </section>
+  );
+}
+
+function ImageGalleryPanel({ title, urls = [] }) {
+  return (
+    <section className="rounded-lg border border-gnd-cream p-4">
+      <h3 className="text-sm font-black text-gnd-dark">{title}</h3>
+      {urls.length ? (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {urls.map((url) => (
+            <a key={url} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg bg-gnd-cream">
+              <img src={url} alt="" className="aspect-[4/3] w-full object-cover" />
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm font-bold text-gnd-gray">No activity photos uploaded</p>
       )}
     </section>
   );
@@ -2613,6 +3249,31 @@ function Field({ label, value, onChange, type = 'text' }) {
     <label className="grid gap-2">
       <span className="text-sm font-black text-gnd-dark">{label}</span>
       <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="h-11 rounded-lg bg-gnd-cream px-3 text-sm font-bold outline-none" />
+    </label>
+  );
+}
+
+function PasswordField({ label, value, onChange }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <label className="grid gap-2">
+      <span className="text-sm font-black text-gnd-dark">{label}</span>
+      <span className="flex h-11 items-center rounded-lg bg-gnd-cream px-3">
+        <input
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((current) => !current)}
+          className="grid h-8 w-8 place-items-center rounded-md text-gnd-gray hover:bg-white hover:text-gnd-red"
+          aria-label={visible ? 'Hide password' : 'Show password'}
+        >
+          {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </span>
     </label>
   );
 }

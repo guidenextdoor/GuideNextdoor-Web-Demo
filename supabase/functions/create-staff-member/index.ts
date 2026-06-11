@@ -45,14 +45,16 @@ Deno.serve(async (request) => {
   const body = await request.json().catch(() => ({}));
   const email = String(body.email || '').trim().toLowerCase();
   const displayName = String(body.displayName || '').trim();
+  const temporaryPassword = String(body.temporaryPassword || '').trim();
   const department = String(body.department || '').trim();
   const employmentType = String(body.employmentType || '').trim();
   const roleIds = Array.isArray(body.roleIds) ? [...new Set(body.roleIds.filter(Boolean))] : [];
 
   if (!email) return jsonResponse({ error: 'missing_email' }, 400);
+  if (temporaryPassword.length < 8) return jsonResponse({ error: 'temporary_password_too_short' }, 400);
   if (!roleIds.length) return jsonResponse({ error: 'missing_roles' }, 400);
 
-  const authUser = await findOrInviteAuthUser(admin, email, displayName);
+  const authUser = await findOrCreateAuthUser(admin, email, displayName, temporaryPassword);
   if (authUser.error || !authUser.user?.id) {
     return jsonResponse({ error: authUser.error || 'auth_user_failed' }, 400);
   }
@@ -76,7 +78,9 @@ Deno.serve(async (request) => {
     email,
     display_name: resolvedDisplayName,
     department: department || null,
-    status: 'active',
+    status: 'pending_first_login',
+    force_password_change: true,
+    password_changed_at: null,
     created_by: caller.id,
   }, { onConflict: 'user_id' }).select('*').single();
   if (staffError || !staffMember?.id) {
@@ -103,7 +107,7 @@ Deno.serve(async (request) => {
   await admin.from('staff_audit_logs').insert({
     staff_member_id: await currentStaffMemberId(admin, caller.id),
     actor_user_id: caller.id,
-    action: authUser.invited ? 'staff.created_with_invite' : 'staff.created',
+    action: authUser.created ? 'staff.created' : 'staff.updated',
     target_type: 'staff_member',
     target_id: staffMember.id,
     metadata: {
@@ -112,7 +116,8 @@ Deno.serve(async (request) => {
       employmentType,
       roleIds,
       authUserCreated: authUser.created,
-      inviteSent: authUser.invited,
+      temporaryPasswordSet: true,
+      forcePasswordChange: true,
     },
   });
 
@@ -120,39 +125,42 @@ Deno.serve(async (request) => {
     data: {
       staffMember,
       authUserId: userId,
-      inviteSent: authUser.invited,
+      inviteSent: false,
       authUserCreated: authUser.created,
     },
     error: null,
   });
 });
 
-async function findOrInviteAuthUser(admin: ReturnType<typeof createClient>, email: string, displayName: string) {
-  const invited = await admin.auth.admin.inviteUserByEmail(email, {
-    data: { display_name: displayName || email, nickname: displayName || email },
-  });
-
-  if (!invited.error && invited.data?.user?.id) {
-    return { user: invited.data.user, error: null, invited: true, created: true };
-  }
-
+async function findOrCreateAuthUser(admin: ReturnType<typeof createClient>, email: string, displayName: string, temporaryPassword: string) {
   const listResult = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const existing = listResult.data?.users?.find((user) => String(user.email || '').toLowerCase() === email);
   if (existing?.id) {
-    return { user: existing, error: null, invited: false, created: false };
+    const updated = await admin.auth.admin.updateUserById(existing.id, {
+      password: temporaryPassword,
+      email_confirm: true,
+      ban_duration: 'none',
+      user_metadata: { display_name: displayName || email, nickname: displayName || email },
+    });
+    if (updated.error || !updated.data?.user?.id) {
+      return { user: null, error: updated.error?.message || 'auth_user_update_failed', created: false };
+    }
+    return { user: updated.data.user, error: null, created: false };
   }
 
   const created = await admin.auth.admin.createUser({
     email,
+    password: temporaryPassword,
     email_confirm: true,
+    ban_duration: 'none',
     user_metadata: { display_name: displayName || email, nickname: displayName || email },
   });
 
   if (created.error || !created.data?.user?.id) {
-    return { user: null, error: invited.error?.message || created.error?.message || 'auth_user_failed', invited: false, created: false };
+    return { user: null, error: created.error?.message || 'auth_user_failed', created: false };
   }
 
-  return { user: created.data.user, error: null, invited: false, created: true };
+  return { user: created.data.user, error: null, created: true };
 }
 
 async function callerHasRole(admin: ReturnType<typeof createClient>, userId: string, roleKey: string) {

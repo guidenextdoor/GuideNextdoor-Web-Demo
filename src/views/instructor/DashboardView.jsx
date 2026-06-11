@@ -3,11 +3,17 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useState } from 'react';
 import { fetchCurrentInstructorProfile, getCurrentSession } from '../../lib/database';
 
+const instructorGateCache = new Map();
+
 export default function DashboardView() {
   const { i18n, t } = useTranslation();
   const session = getCurrentSession();
   const sessionUserId = session?.user?.id || '';
-  const [state, setState] = useState({ loading: Boolean(session), hasInstructorProfile: false });
+  const cachedGate = sessionUserId ? instructorGateCache.get(sessionUserId) : null;
+  const [state, setState] = useState({
+    loading: Boolean(session) && !cachedGate,
+    hasInstructorProfile: Boolean(cachedGate?.hasInstructorProfile),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -15,7 +21,10 @@ export default function DashboardView() {
     if (!sessionUserId) return undefined;
 
     fetchCurrentInstructorProfile().then((result) => {
-      if (!cancelled) setState({ loading: false, hasInstructorProfile: Boolean(result.data) });
+      if (cancelled) return;
+      const hasInstructorProfile = Boolean(result.data);
+      instructorGateCache.set(sessionUserId, { hasInstructorProfile });
+      setState({ loading: false, hasInstructorProfile });
     });
 
     return () => {

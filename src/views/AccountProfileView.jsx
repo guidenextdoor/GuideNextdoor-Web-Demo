@@ -3,18 +3,20 @@ import { Navigate } from 'react-router-dom';
 import { Camera, Loader2, Save, UserCircle, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'framer-motion';
-import { fetchCurrentUserProfile, getCurrentSession, updateCurrentUserProfile, uploadUserAvatar } from '../lib/database';
+import { fetchCurrentUserProfile, getCurrentSession, updateCurrentUserPassword, updateCurrentUserProfile, uploadUserAvatar } from '../lib/database';
 
 const AVATAR_FRAME_SIZE = 300;
 
-export default function AccountProfileView() {
+export default function AccountProfileView({ embedded = false }) {
   const { t, i18n } = useTranslation();
   const session = getCurrentSession();
   const fileInputRef = useRef(null);
   const [state, setState] = useState({ loading: true, profile: null, error: '' });
   const [form, setForm] = useState({ nickname: '', avatarUrl: '' });
+  const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' });
   const [avatarEditor, setAvatarEditor] = useState(null);
   const [status, setStatus] = useState({ saving: false, uploading: false, error: '', notice: '' });
+  const [passwordStatus, setPasswordStatus] = useState({ saving: false, error: '', notice: '' });
 
   useEffect(() => {
     let cancelled = false;
@@ -33,7 +35,7 @@ export default function AccountProfileView() {
     };
   }, []);
 
-  if (!session) return <Navigate to={`/${i18n.language}/login?redirect=${encodeURIComponent(`/${i18n.language}/profile`)}`} replace />;
+  if (!session) return embedded ? null : <Navigate to={`/${i18n.language}/login?redirect=${encodeURIComponent(`/${i18n.language}/profile`)}`} replace />;
 
   const handleAvatarChange = async (event) => {
     const file = event.target.files?.[0];
@@ -101,26 +103,32 @@ export default function AccountProfileView() {
     setStatus({ saving: false, uploading: false, error: '', notice: t('account.saved') });
   };
 
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="mx-auto max-w-5xl px-5 py-8 md:px-8 md:py-12"
-    >
-      <div className="mb-6">
-        <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.22em] text-gnd-red">
-          <UserCircle size={15} />
-          {t('account.eyebrow')}
-        </p>
-        <h1 className="mt-2 text-3xl font-black tracking-tight text-gnd-dark md:text-5xl">{t('account.title')}</h1>
-        <p className="mt-3 max-w-2xl text-sm font-bold leading-6 text-gnd-gray">{t('account.subtitle')}</p>
-      </div>
+  const handlePasswordSubmit = async (event) => {
+    event.preventDefault();
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordStatus({ saving: false, error: 'Password must be at least 8 characters.', notice: '' });
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordStatus({ saving: false, error: 'Passwords do not match.', notice: '' });
+      return;
+    }
+    setPasswordStatus({ saving: true, error: '', notice: '' });
+    const result = await updateCurrentUserPassword(passwordForm.newPassword);
+    if (result.error) {
+      setPasswordStatus({ saving: false, error: 'Could not update password. Please try again.', notice: '' });
+      return;
+    }
+    setPasswordForm({ newPassword: '', confirmPassword: '' });
+    setPasswordStatus({ saving: false, error: '', notice: 'Password updated.' });
+  };
 
-      {state.loading ? (
+  const content = state.loading ? (
         <div className="grid h-64 place-items-center rounded-lg bg-white">
           <Loader2 className="animate-spin text-gnd-red" size={32} />
         </div>
       ) : (
+        <div className="grid gap-5">
         <form onSubmit={handleSubmit} className="rounded-lg bg-white p-5 shadow-xl shadow-red-900/5 md:p-7">
           <div className="grid gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
             <section>
@@ -186,7 +194,59 @@ export default function AccountProfileView() {
             </button>
           </div>
         </form>
-      )}
+        <form onSubmit={handlePasswordSubmit} className="rounded-lg bg-white p-5 shadow-xl shadow-red-900/5 md:p-7">
+          <h2 className="text-xl font-black text-gnd-dark">Account security</h2>
+          <p className="mt-2 text-sm font-bold leading-6 text-gnd-gray">Update your password directly from this page. This applies to learner, instructor, and staff accounts.</p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="grid gap-2">
+              <span className="text-sm font-black text-gnd-dark">New password</span>
+              <input
+                type="password"
+                value={passwordForm.newPassword}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                minLength={8}
+                className="h-12 rounded-lg bg-gnd-cream px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-gnd-red/20"
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-sm font-black text-gnd-dark">Confirm new password</span>
+              <input
+                type="password"
+                value={passwordForm.confirmPassword}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                minLength={8}
+                className="h-12 rounded-lg bg-gnd-cream px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-gnd-red/20"
+              />
+            </label>
+          </div>
+          {passwordStatus.error && <p className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-gnd-red">{passwordStatus.error}</p>}
+          {passwordStatus.notice && <p className="mt-5 rounded-lg bg-green-50 px-4 py-3 text-sm font-bold text-green-600">{passwordStatus.notice}</p>}
+          <div className="mt-6 flex justify-end">
+            <button type="submit" disabled={passwordStatus.saving || !passwordForm.newPassword || !passwordForm.confirmPassword} className="inline-flex items-center gap-2 rounded-lg bg-gnd-dark px-5 py-3 text-sm font-black text-white transition hover:bg-gnd-red disabled:opacity-60">
+              {passwordStatus.saving ? t('states.saving') : 'Update password'}
+            </button>
+          </div>
+        </form>
+        </div>
+      );
+
+  if (embedded) return content;
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mx-auto max-w-5xl px-5 py-8 md:px-8 md:py-12"
+    >
+      <div className="mb-6">
+        <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.22em] text-gnd-red">
+          <UserCircle size={15} />
+          {t('account.eyebrow')}
+        </p>
+        <h1 className="mt-2 text-3xl font-black tracking-tight text-gnd-dark md:text-5xl">{t('account.title')}</h1>
+        <p className="mt-3 max-w-2xl text-sm font-bold leading-6 text-gnd-gray">{t('account.subtitle')}</p>
+      </div>
+      {content}
     </motion.section>
   );
 }

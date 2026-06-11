@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarDays, Clock, DatabaseZap, MapPin, Search, SlidersHorizontal, UserRound } from 'lucide-react';
+import { ArrowRight, CalendarDays, Clock, DatabaseZap, MapPin, Search, SlidersHorizontal, UserRound, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { fetchSessionSearchData } from '../lib/database';
@@ -12,6 +12,21 @@ const ACTIVE_BOOKING_STATUSES = new Set([
   'Confirmed',
 ]);
 
+const SESSION_IMAGES = [
+  ['ski', 'https://images.unsplash.com/photo-1551698618-1dfe5d97d256?auto=format&fit=crop&w=900&q=80'],
+  ['snowboard', 'https://images.unsplash.com/photo-1481671703460-040cb8a2d909?auto=format&fit=crop&w=900&q=80'],
+  ['surf', 'https://images.unsplash.com/photo-1502680390469-be75c86b636f?auto=format&fit=crop&w=900&q=80'],
+  ['yoga', 'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=900&q=80'],
+  ['tennis', 'https://images.unsplash.com/photo-1595435934249-5df7ed86e1c0?auto=format&fit=crop&w=900&q=80'],
+  ['fitness', 'https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=900&q=80'],
+  ['run', 'https://images.unsplash.com/photo-1502904550040-7534597429ae?auto=format&fit=crop&w=900&q=80'],
+  ['hike', 'https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=900&q=80'],
+  ['dance', 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?auto=format&fit=crop&w=900&q=80'],
+  ['swim', 'https://images.unsplash.com/photo-1530549387789-4c1017266635?auto=format&fit=crop&w=900&q=80'],
+];
+
+const FALLBACK_SESSION_IMAGE = 'https://images.unsplash.com/photo-1517649763962-0c623066013b?auto=format&fit=crop&w=900&q=80';
+
 export default function SearchView() {
   const { t, i18n } = useTranslation();
   const [state, setState] = useState({ loading: true, data: null, error: null, tableName: '' });
@@ -22,6 +37,7 @@ export default function SearchView() {
     time: '',
     keyword: '',
   });
+  const [selectedService, setSelectedService] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,21 +70,44 @@ export default function SearchView() {
     <motion.section
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10"
+      className="mx-auto max-w-6xl px-5 py-7 md:px-8 md:py-10"
     >
-      <div className="mb-6">
-        <p className="mb-2 text-xs font-black uppercase tracking-[0.22em] text-gnd-red">{t('sessionsSearch.eyebrow')}</p>
-        <h1 className="text-3xl font-black tracking-tight md:text-5xl">{t('sessionsSearch.title')}</h1>
+      <div className="border-b border-gnd-cream pb-5">
+        <p className="mb-2 text-xs font-black uppercase text-gnd-red">{t('sessionsSearch.eyebrow')}</p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <h1 className="max-w-2xl text-3xl font-black text-gnd-dark md:text-5xl">{t('sessionsSearch.title')}</h1>
+          <p className="text-sm font-black text-gnd-gray">{state.loading ? t('states.loading') : t('sessionsSearch.resultCount', { count: results.length })}</p>
+        </div>
       </div>
 
-      <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
-        <div className="grid gap-3 md:grid-cols-5">
-          <label className="grid gap-2 text-xs font-black uppercase tracking-widest text-gnd-gray">
+      <div className="mt-5 flex gap-2 overflow-x-auto pb-2">
+        <button
+          type="button"
+          onClick={() => updateFilter('activityId', '')}
+          className={`shrink-0 rounded-full border px-4 py-2 text-sm font-black transition ${!filters.activityId ? 'border-gnd-dark bg-gnd-dark text-white' : 'border-gnd-cream bg-white text-gnd-gray hover:border-gnd-red hover:text-gnd-red'}`}
+        >
+          {t('sessionsSearch.filters.anyActivity')}
+        </button>
+        {(state.data?.activities || []).map((activity) => (
+          <button
+            key={activity.id}
+            type="button"
+            onClick={() => updateFilter('activityId', activity.id)}
+            className={`shrink-0 rounded-full border px-4 py-2 text-sm font-black transition ${filters.activityId === activity.id ? 'border-gnd-dark bg-gnd-dark text-white' : 'border-gnd-cream bg-white text-gnd-gray hover:border-gnd-red hover:text-gnd-red'}`}
+          >
+            {activity.label}
+          </button>
+        ))}
+      </div>
+
+      <section className="mt-4 rounded-lg border border-gnd-cream bg-white p-3 shadow-sm">
+        <div className="grid gap-2 md:grid-cols-[minmax(160px,1fr)_150px_140px_minmax(190px,1.1fr)_auto] md:items-end">
+          <label className="grid gap-1 text-xs font-black uppercase text-gnd-gray">
             {t('sessionsSearch.filters.location')}
             <select
               value={filters.locationId}
               onChange={(event) => updateFilter('locationId', event.target.value)}
-              className="rounded-lg border border-gnd-cream bg-white px-3 py-3 text-sm font-bold normal-case tracking-normal text-gnd-dark outline-none focus:border-gnd-red"
+              className="h-11 rounded-md border border-gnd-cream bg-white px-3 text-sm font-bold normal-case text-gnd-dark outline-none focus:border-gnd-red"
             >
               <option value="">{t('sessionsSearch.filters.anyLocation')}</option>
               {(state.data?.locations || []).map((location) => (
@@ -77,41 +116,27 @@ export default function SearchView() {
             </select>
           </label>
 
-          <label className="grid gap-2 text-xs font-black uppercase tracking-widest text-gnd-gray">
+          <label className="grid gap-1 text-xs font-black uppercase text-gnd-gray">
             {t('sessionsSearch.filters.date')}
             <input
               type="date"
               value={filters.date}
               onChange={(event) => updateFilter('date', event.target.value)}
-              className="rounded-lg border border-gnd-cream bg-white px-3 py-3 text-sm font-bold normal-case tracking-normal text-gnd-dark outline-none focus:border-gnd-red"
+              className="h-11 rounded-md border border-gnd-cream bg-white px-3 text-sm font-bold normal-case text-gnd-dark outline-none focus:border-gnd-red"
             />
           </label>
 
-          <label className="grid gap-2 text-xs font-black uppercase tracking-widest text-gnd-gray">
+          <label className="grid gap-1 text-xs font-black uppercase text-gnd-gray">
             {t('sessionsSearch.filters.startTime')}
             <input
               type="time"
               value={filters.time}
               onChange={(event) => updateFilter('time', event.target.value)}
-              className="rounded-lg border border-gnd-cream bg-white px-3 py-3 text-sm font-bold normal-case tracking-normal text-gnd-dark outline-none focus:border-gnd-red"
+              className="h-11 rounded-md border border-gnd-cream bg-white px-3 text-sm font-bold normal-case text-gnd-dark outline-none focus:border-gnd-red"
             />
           </label>
 
-          <label className="grid gap-2 text-xs font-black uppercase tracking-widest text-gnd-gray">
-            {t('sessionsSearch.filters.activity')}
-            <select
-              value={filters.activityId}
-              onChange={(event) => updateFilter('activityId', event.target.value)}
-              className="rounded-lg border border-gnd-cream bg-white px-3 py-3 text-sm font-bold normal-case tracking-normal text-gnd-dark outline-none focus:border-gnd-red"
-            >
-              <option value="">{t('sessionsSearch.filters.anyActivity')}</option>
-              {(state.data?.activities || []).map((activity) => (
-                <option key={activity.id} value={activity.id}>{activity.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid gap-2 text-xs font-black uppercase tracking-widest text-gnd-gray">
+          <label className="grid gap-1 text-xs font-black uppercase text-gnd-gray">
             {t('sessionsSearch.filters.keyword')}
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gnd-gray/50" />
@@ -119,10 +144,18 @@ export default function SearchView() {
                 value={filters.keyword}
                 onChange={(event) => updateFilter('keyword', event.target.value)}
                 placeholder={t('sessionsSearch.filters.keywordPlaceholder')}
-                className="w-full rounded-lg border border-gnd-cream bg-white py-3 pl-9 pr-3 text-sm font-bold normal-case tracking-normal text-gnd-dark outline-none focus:border-gnd-red"
+                className="h-11 w-full rounded-md border border-gnd-cream bg-white pl-9 pr-3 text-sm font-bold normal-case text-gnd-dark outline-none focus:border-gnd-red"
               />
             </div>
           </label>
+          <button
+            type="button"
+            onClick={() => setFilters({ locationId: '', activityId: '', date: '', time: '', keyword: '' })}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-gnd-cream px-4 text-xs font-black text-gnd-dark transition hover:bg-gnd-dark hover:text-white"
+          >
+            <SlidersHorizontal size={14} />
+            {t('sessionsSearch.clear')}
+          </button>
         </div>
       </section>
 
@@ -136,22 +169,10 @@ export default function SearchView() {
         </div>
       )}
 
-      <div className="mt-6 flex items-center justify-between gap-3">
-        <p className="text-sm font-black text-gnd-gray">{state.loading ? t('states.loading') : t('sessionsSearch.resultCount', { count: results.length })}</p>
-        <button
-          type="button"
-          onClick={() => setFilters({ locationId: '', activityId: '', date: '', time: '', keyword: '' })}
-          className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-gnd-dark"
-        >
-          <SlidersHorizontal size={14} />
-          {t('sessionsSearch.clear')}
-        </button>
-      </div>
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        {state.loading && [1, 2, 3, 4].map((item) => <div key={item} className="h-48 animate-pulse rounded-lg bg-white" />)}
+      <div className="mt-6 divide-y divide-gnd-cream border-y border-gnd-cream bg-white">
+        {state.loading && [1, 2, 3, 4].map((item) => <div key={item} className="h-48 animate-pulse bg-white" />)}
         {!state.loading && results.map((service) => (
-          <SessionResultCard key={service.id} service={service} language={i18n.language} />
+          <SessionResultCard key={service.id} service={service} language={i18n.language} onOpen={setSelectedService} />
         ))}
       </div>
 
@@ -161,61 +182,191 @@ export default function SearchView() {
           <p className="mt-2 text-sm font-bold text-gnd-gray">{t('sessionsSearch.emptyBody')}</p>
         </div>
       )}
+
+      {selectedService && (
+        <SessionDetailModal service={selectedService} language={i18n.language} onClose={() => setSelectedService(null)} />
+      )}
     </motion.section>
   );
 }
 
-function SessionResultCard({ service, language }) {
+function SessionResultCard({ service, language, onOpen }) {
   const state = service.availabilityState;
-  const profileTarget = service.coachUsername || service.instructorId;
+  const imageUrl = sessionImageFor(service);
+  const bookingPath = buildBookingPath(service, language);
+  const profilePath = buildProfilePath(service, language);
+  const showAvailabilityMeta = state.status !== 'flexible';
+  const open = () => onOpen(service);
+  const handleKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      open();
+    }
+  };
 
   return (
-    <article className="rounded-lg border border-gnd-cream bg-white p-5 shadow-sm">
-      <div className="flex items-start gap-4">
-        <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-gnd-cream text-gnd-red">
-          {service.avatarUrl ? <img src={service.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound size={22} />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h2 className="truncate text-xl font-black text-gnd-dark">{service.title}</h2>
-              <p className="mt-1 text-sm font-bold text-gnd-gray">{service.coachName}</p>
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={handleKeyDown}
+      className="group grid min-w-0 cursor-pointer gap-4 bg-white px-0 py-5 transition hover:bg-gnd-cream/30 focus:outline-none focus:ring-2 focus:ring-gnd-red/20 sm:grid-cols-[176px_minmax(0,1fr)] md:grid-cols-[204px_minmax(0,1fr)_170px] md:px-4"
+    >
+        <div className="aspect-[4/3] overflow-hidden bg-gnd-cream sm:aspect-square">
+          <img src={imageUrl} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+        </div>
+        <div className="min-w-0 px-4 sm:px-0">
+          {showAvailabilityMeta && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <AvailabilityBadge status={state.status} label={state.label} />
             </div>
-            <AvailabilityBadge status={state.status} label={state.label} />
-          </div>
+          )}
+          <h2 className="line-clamp-2 text-2xl font-black leading-tight text-gnd-dark">{service.title}</h2>
+          <p className="mt-2 line-clamp-2 text-sm font-bold leading-6 text-gnd-gray">{service.description || 'Ask the coach for the best session format and meeting point.'}</p>
 
-          <p className="mt-3 line-clamp-2 text-sm leading-6 text-gnd-gray">{service.description || 'Ask the coach for the best session format and meeting point.'}</p>
-
-          <div className="mt-4 flex flex-wrap gap-2 text-xs font-black text-gnd-gray">
-            <span className="inline-flex items-center gap-1 rounded-md bg-gnd-cream/50 px-2 py-1">
+          <div className="mt-4 grid gap-2 text-sm font-black text-gnd-gray sm:grid-cols-2">
+            <span className="inline-flex min-w-0 items-center gap-2">
               <MapPin size={13} className="text-gnd-red" />
-              {formatLocations(service)}
+              <span className="truncate">{formatLocations(service)}</span>
             </span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-gnd-cream/50 px-2 py-1">
-              <CalendarDays size={13} className="text-gnd-red" />
-              {state.dateLabel}
+            {showAvailabilityMeta && (
+              <>
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <CalendarDays size={13} className="text-gnd-red" />
+                  <span className="truncate">{state.dateLabel}</span>
+                </span>
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Clock size={13} className="text-gnd-red" />
+                  <span className="truncate">{state.timeLabel}</span>
+                </span>
+              </>
+            )}
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <Link
+                to={profilePath}
+                onClick={(event) => event.stopPropagation()}
+                className="grid h-6 w-6 shrink-0 place-items-center overflow-hidden rounded-full bg-gnd-cream text-gnd-red ring-1 ring-gnd-cream transition hover:ring-gnd-red"
+                aria-label={`View ${service.coachName}'s profile`}
+              >
+                {service.avatarUrl ? <img src={service.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound size={12} />}
+              </Link>
+              <span className="truncate">{service.coachName}</span>
             </span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-gnd-cream/50 px-2 py-1">
-              <Clock size={13} className="text-gnd-red" />
-              {state.timeLabel}
-            </span>
-          </div>
-
-          <div className="mt-5 flex items-center justify-between gap-3 border-t border-gnd-cream pt-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-gnd-gray/50">From</p>
-              <p className="text-lg font-black text-gnd-dark">{service.minPrice ? formatMoney(service.minPrice, service.currency) : 'Ask for price'}</p>
-            </div>
-            <Link
-              to={`/${language}/guide/${profileTarget}?tab=sessions`}
-              className="rounded-lg bg-gnd-red px-4 py-3 text-xs font-black text-white transition hover:bg-gnd-dark"
-            >
-              View profile
-            </Link>
           </div>
         </div>
-      </div>
+
+        <div className="flex items-center justify-between gap-3 px-4 sm:col-start-2 sm:px-0 md:col-start-auto md:flex-col md:items-end md:justify-between">
+          <div className="text-left md:text-right">
+            <p className="text-xs font-black uppercase text-gnd-gray">From</p>
+            <p className="mt-1 text-xl font-black text-gnd-dark">{service.minPrice ? formatMoney(service.minPrice, service.currency) : 'Ask for price'}</p>
+          </div>
+          <Link
+            to={bookingPath}
+            onClick={(event) => event.stopPropagation()}
+            className="inline-flex items-center gap-2 rounded-lg border border-gnd-red bg-gnd-red px-4 py-3 text-xs font-black !text-white shadow-sm shadow-red-900/10 transition hover:border-gnd-red hover:bg-red-600 hover:!text-white active:scale-[0.98]"
+          >
+            Book session
+            <ArrowRight size={14} />
+          </Link>
+        </div>
     </article>
+  );
+}
+
+function SessionDetailModal({ service, language, onClose }) {
+  const state = service.availabilityState;
+  const imageUrl = sessionImageFor(service);
+  const galleryUrls = Array.isArray(service.activityImageUrls) && service.activityImageUrls.length ? service.activityImageUrls : [imageUrl];
+  const bookingPath = buildBookingPath(service, language);
+  const profilePath = buildProfilePath(service, language);
+  const showAvailabilityMeta = state.status !== 'flexible';
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-gnd-dark/55 px-4 py-6" onMouseDown={onClose}>
+      <section className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="grid md:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+          <div className="bg-gnd-cream">
+            <img src={imageUrl} alt="" className="h-full max-h-[520px] min-h-[260px] w-full object-cover" />
+          </div>
+          <div className="p-5 md:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                {showAvailabilityMeta && <AvailabilityBadge status={state.status} label={state.label} />}
+                <h2 className="mt-3 text-3xl font-black leading-tight text-gnd-dark">{service.title}</h2>
+                <Link to={profilePath} className="mt-3 inline-flex items-center gap-2 text-sm font-black text-gnd-dark hover:text-gnd-red">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-gnd-cream text-gnd-red">
+                    {service.avatarUrl ? <img src={service.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound size={14} />}
+                  </span>
+                  {service.coachName}
+                </Link>
+              </div>
+              <button type="button" onClick={onClose} className="rounded-lg bg-gnd-cream p-2 text-gnd-dark hover:text-gnd-red">
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="mt-5 whitespace-pre-wrap text-sm font-bold leading-7 text-gnd-gray">
+              {service.description || 'The instructor has not added a full introduction yet. Use the booking request to share your goals, preferred level, and timing.'}
+            </p>
+
+            {galleryUrls.length > 1 && (
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                {galleryUrls.slice(0, 6).map((url) => (
+                  <a key={url} href={url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg bg-gnd-cream">
+                    <img src={url} alt="" className="aspect-[4/3] w-full object-cover" />
+                  </a>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <SessionDetailItem icon={MapPin} label="Location" value={formatLocations(service)} />
+              <SessionDetailItem icon={Clock} label="Duration" value={`${service.minDurationHours || 1} hour minimum`} />
+              {showAvailabilityMeta && <SessionDetailItem icon={CalendarDays} label="Availability" value={`${state.dateLabel} / ${state.timeLabel}`} />}
+              <SessionDetailItem icon={UserRound} label="Coach" value={service.coachName} />
+            </div>
+
+            {service.qualification && (
+              <div className="mt-5 rounded-lg bg-gnd-cream/70 p-4">
+                <p className="text-xs font-black uppercase text-gnd-gray">Credential</p>
+                <p className="mt-1 text-sm font-black text-gnd-dark">{service.qualification}</p>
+              </div>
+            )}
+
+            <div className="mt-6 flex flex-col gap-3 border-t border-gnd-cream pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase text-gnd-gray">From</p>
+                <p className="mt-1 text-2xl font-black text-gnd-dark">{service.minPrice ? formatMoney(service.minPrice, service.currency) : 'Ask for price'}</p>
+              </div>
+              <Link to={bookingPath} className="inline-flex items-center justify-center gap-2 rounded-lg border border-gnd-red bg-gnd-red px-5 py-3 text-sm font-black !text-white shadow-sm shadow-red-900/10 transition hover:border-gnd-red hover:bg-red-600 hover:!text-white active:scale-[0.98]">
+                Book session
+                <ArrowRight size={16} />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SessionDetailItem({ icon: Icon, label, value }) {
+  return (
+    <div className="rounded-lg border border-gnd-cream p-3">
+      <p className="flex items-center gap-2 text-xs font-black uppercase text-gnd-gray">
+        <Icon size={14} className="text-gnd-red" />
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-black text-gnd-dark">{value || '-'}</p>
+    </div>
   );
 }
 
@@ -246,9 +397,23 @@ function matchesFilters(service, filters) {
   return haystack.includes(keyword);
 }
 
+function sessionImageFor(service) {
+  if (Array.isArray(service.activityImageUrls) && service.activityImageUrls[0]) return service.activityImageUrls[0];
+  const text = `${service.activityKey || ''} ${service.title || ''} ${service.description || ''}`.toLowerCase();
+  return SESSION_IMAGES.find(([key]) => text.includes(key))?.[1] || FALLBACK_SESSION_IMAGE;
+}
+
+function buildProfilePath(service, language) {
+  return `/${language}/guide/${service.coachUsername || service.instructorId}`;
+}
+
+function buildBookingPath(service, language) {
+  return `${buildProfilePath(service, language)}?tab=sessions&service=${encodeURIComponent(service.id)}`;
+}
+
 function getAvailabilityState(service, filters) {
   if (!filters.date) {
-    return { status: 'flexible', label: 'Select date', dateLabel: 'Choose date', timeLabel: 'Flexible time' };
+    return { status: 'flexible', label: '', dateLabel: '', timeLabel: '' };
   }
 
   const day = new Date(`${filters.date}T00:00:00`).getDay();

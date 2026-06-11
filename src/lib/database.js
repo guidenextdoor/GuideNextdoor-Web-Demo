@@ -38,6 +38,8 @@ const STAFF_FALLBACK_PERMISSIONS = [
   'user.unblock',
 ];
 
+let instructorScheduleCache = null;
+
 export const databaseStatus = {
   hasConfig: Boolean(SUPABASE_URL && SUPABASE_ANON_KEY),
   projectUrl: SUPABASE_URL || '',
@@ -81,6 +83,16 @@ export function getCurrentSession() {
   }
 
   return null;
+}
+
+export function getCachedInstructorSchedule() {
+  const session = getCurrentSession();
+  if (!session?.user?.id || instructorScheduleCache?.userId !== session.user.id) return null;
+  return {
+    data: instructorScheduleCache.data,
+    error: instructorScheduleCache.error,
+    tableName: instructorScheduleCache.tableName,
+  };
 }
 
 async function getActiveSession() {
@@ -199,6 +211,66 @@ export async function signUpWithPassword(email, password, profile = {}) {
     await ensureUserProfile(data, { nickname, displayName: nickname });
   }
   return { data, error: null };
+}
+
+export async function updateCurrentUserPassword(newPassword) {
+  if (!databaseStatus.hasConfig) return { data: null, error: 'missing_config' };
+  const session = getCurrentSession();
+  if (!session?.access_token) return { data: null, error: 'auth_required' };
+  if (String(newPassword || '').length < 8) return { data: null, error: 'password_too_short' };
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    method: 'PUT',
+    headers: {
+      ...buildHeaders(session),
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ password: newPassword }),
+  });
+
+  if (!response.ok) return { data: null, error: await response.text() };
+  return { data: await response.json(), error: null };
+}
+
+export async function sendPasswordResetEmail(email, redirectTo = '') {
+  if (!databaseStatus.hasConfig) return { data: null, error: 'missing_config' };
+  const payload = { email };
+  if (redirectTo) payload.redirect_to = redirectTo;
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) return { data: null, error: await response.text() };
+  return { data: await response.json().catch(() => ({})), error: null };
+}
+
+export async function completeStaffFirstPasswordChange(newPassword) {
+  const passwordResult = await updateCurrentUserPassword(newPassword);
+  if (passwordResult.error) return { data: null, error: passwordResult.error, tableName: 'auth.users' };
+
+  const session = getCurrentSession();
+  const staffResult = await queryTable('staff_members', {
+    select: 'id',
+    user_id: `eq.${session.user.id}`,
+    limit: '1',
+  }, session);
+  const staffMemberId = staffResult.data?.[0]?.id;
+  if (!staffMemberId) return { data: passwordResult.data, error: null, tableName: 'auth.users' };
+
+  const updateResult = await updateTable('staff_members', staffMemberId, {
+    status: 'active',
+    force_password_change: false,
+    password_changed_at: new Date().toISOString(),
+  }, session);
+  return updateResult.error
+    ? { data: passwordResult.data, error: updateResult.error, tableName: 'staff_members' }
+    : { data: passwordResult.data, error: null, tableName: 'staff_members' };
 }
 
 export function getOAuthLoginUrl(provider, redirectTo) {
@@ -459,7 +531,7 @@ export async function fetchInstructorSchedule() {
   }
 
   const coach = normalizeCoach(fallbackResult.data[0]);
-  const [servicesResult, availabilityResult, overridesResult, postsResult, reviewsResult] = await Promise.all([
+  const [servicesResult, availabilityResult, overridesResult, postsResult, reviewsResult, credentialsResult] = await Promise.all([
     queryTable('instructor_services', {
       select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*)',
       instructor_id: `eq.${coach.id}`,
@@ -490,6 +562,12 @@ export async function fetchInstructorSchedule() {
       order: 'created_at.desc',
       limit: '48',
     }, session),
+    queryTable('instructor_credentials', {
+      select: '*,ref_activities(*),ref_qualifications(*)',
+      instructor_id: `eq.${coach.id}`,
+      order: 'created_at.desc',
+      limit: '120',
+    }, session),
   ]);
 
   const servicesData = servicesResult.data || [];
@@ -505,13 +583,14 @@ export async function fetchInstructorSchedule() {
   const reviews = (reviewsResult.data || []).map((row) => normalizeReview(row));
   const bookedSlots = bookingsResult.error ? [] : mapBookedSlotsToServices(bookingsResult.data || [], services);
 
-  return {
+  const result = {
     data: {
       coach: {
         ...coach,
         stats: buildInstructorStats(coach, services, posts, reviews, bookedSlots),
       },
       services,
+      credentials: (credentialsResult.data || []).map((row) => normalizeInstructorCredential(row)),
       availability: availabilityResult.error ? [] : availabilityResult.data.map((row) => normalizeAvailability(row)),
       availabilityOverrides: overridesResult.error ? [] : overridesResult.data.map((row) => normalizeAvailabilityOverride(row)),
       bookedSlots,
@@ -519,9 +598,20 @@ export async function fetchInstructorSchedule() {
       reviews,
       canEdit: Boolean(session && instructorResult.data?.length),
     },
-    error: servicesResult.error || availabilityResult.error || overridesResult.error || postsResult.error || reviewsResult.error || bookingsResult.error || null,
+    error: servicesResult.error || availabilityResult.error || overridesResult.error || postsResult.error || reviewsResult.error || credentialsResult.error || bookingsResult.error || null,
     tableName: servicesResult.tableName || 'instructor_services',
   };
+
+  if (session?.user?.id && instructorResult.data?.length) {
+    instructorScheduleCache = {
+      userId: session.user.id,
+      data: result.data,
+      error: result.error,
+      tableName: result.tableName,
+    };
+  }
+
+  return result;
 }
 
 export async function createInstructorAvailabilityWindow(payload) {
@@ -980,7 +1070,7 @@ export async function fetchInstructorProfile(id) {
   if (coachResult.error || !coachResult.data) return coachResult;
   const instructorId = coachResult.data.id;
 
-  const [postsResult, servicesResult, reviewsResult, availabilityResult, overridesResult, qualificationsResult, languageResult] = await Promise.all([
+  const [postsResult, servicesResult, reviewsResult, availabilityResult, overridesResult, qualificationsResult, credentialRowsResult, languageResult] = await Promise.all([
     queryTable('posts', {
       select: '*,locations(*),user_liked:post_likes(id),user_saved:saved_posts(id)',
       instructor_id: `eq.${instructorId}`,
@@ -1019,6 +1109,13 @@ export async function fetchInstructorProfile(id) {
       order: 'attainment_year.asc',
       limit: '48',
     }, session),
+    queryTable('instructor_credentials', {
+      select: '*,ref_activities(*),ref_qualifications(*)',
+      instructor_id: `eq.${instructorId}`,
+      approval_status: 'eq.Approved',
+      order: 'attainment_year.desc',
+      limit: '120',
+    }, session),
     queryTable('user_languages', {
       select: '*,ref_languages(*)',
       user_id: `eq.${coachResult.data.userId}`,
@@ -1037,7 +1134,9 @@ export async function fetchInstructorProfile(id) {
   const services = servicesResult.data?.map((row) => normalizeInstructorService(row)) || [];
   const servicesWithLocations = await attachServiceLocations(services);
   const bookingsResult = await fetchInstructorServiceBookings(servicesWithLocations);
-  const qualifications = qualificationsResult.data?.map((row) => normalizeQualification(row)) || [];
+  const qualificationRows = qualificationsResult.data?.map((row) => normalizeQualification(row)) || [];
+  const approvedCredentials = (credentialRowsResult.data || []).map((row) => normalizeInstructorCredential(row));
+  const qualifications = mergePublicCredentials([...approvedCredentials, ...qualificationRows], servicesWithLocations);
   
   const posts = postsResult.data?.map((row) => normalizePost({
     ...row,
@@ -1080,12 +1179,73 @@ function normalizeQualification(row) {
     id: row.id,
     activityId: row.activity_id,
     activityKey: activity.translation_key || activity.category_key || '',
-    title: humanizeKey(activity.translation_key || activity.category_key || 'Coaching'),
+    title: activityDisplayName(activity, 'Coaching'),
     iconName: activity.icon_name || '',
-    qualification: row.qualification_name || '',
+    qualification: cleanDisplayText(row.qualification_name || ''),
     attainmentYear: row.attainment_year || null,
     certificateUrl: row.certificate_url || null,
   };
+}
+
+function mergePublicCredentials(qualificationRows, services) {
+  const credentials = [...qualificationRows];
+  const seen = new Set(credentials.map((credential) => publicCredentialKey(credential)));
+
+  services.forEach((service) => {
+    const hasPublicCredential = service.qualification || service.maskedCertUrl;
+    if (!hasPublicCredential) return;
+    const credential = {
+      id: `service-${service.id}`,
+      activityId: service.activityId,
+      activityKey: service.activityKey,
+      title: service.title,
+      iconName: service.iconName,
+      qualification: cleanDisplayText(service.qualification || `${service.title} Certification`),
+      attainmentYear: service.attainmentYear || null,
+      certificateUrl: service.maskedCertUrl || '',
+      source: 'service',
+    };
+    const key = publicCredentialKey(credential);
+    if (seen.has(key)) return;
+    seen.add(key);
+    credentials.push(credential);
+  });
+
+  return credentials;
+}
+
+function normalizeInstructorCredential(row) {
+  const activity = row.ref_activities || {};
+  const qualification = row.ref_qualifications || {};
+  return {
+    id: row.id,
+    instructorId: row.instructor_id || '',
+    activityId: row.activity_id || '',
+    activityKey: activity.translation_key || activity.category_key || '',
+    title: activityDisplayName(activity, 'Coaching'),
+    iconName: activity.icon_name || '',
+    qualificationId: row.qualification_id || '',
+    qualification: cleanDisplayText(qualification.qualification_name || row.custom_qualification_name || ''),
+    attainmentYear: row.attainment_year || null,
+    certificateUrl: row.masked_certificate_url || '',
+    rawCertificateUrl: row.raw_certificate_url || '',
+    maskedCertificateUrl: row.masked_certificate_url || '',
+    status: row.approval_status || 'Pending',
+    staffNote: row.staff_note || '',
+    reviewedAt: row.reviewed_at || '',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+    source: 'credential',
+  };
+}
+
+function publicCredentialKey(credential) {
+  return [
+    credential.activityId || credential.activityKey || '',
+    cleanDisplayText(credential.qualification || '').toLowerCase(),
+    credential.attainmentYear || '',
+    credential.certificateUrl || '',
+  ].join('|');
 }
 
 async function fetchInstructorServiceBookings(services, session = null) {
@@ -1497,24 +1657,44 @@ export async function fetchStaffServiceRequests() {
   const permission = await requireStaffAnyPermission(['service.approve', 'service.create'], session);
   if (permission.error) return { data: [], error: permission.error, tableName: permission.tableName };
 
-  const result = await queryTable('instructor_services', {
-    select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*),instructor_profiles(id,user_id,users(id,email,display_name,nickname,username,avatar_url))',
-    limit: '200',
-  }, session);
+  const [serviceResult, credentialResult] = await Promise.all([
+    queryTable('instructor_services', {
+      select: '*,ref_activities(*),ref_qualifications(*),instructor_pricing(*),instructor_profiles(id,user_id,users(id,email,display_name,nickname,username,avatar_url))',
+      limit: '200',
+    }, session),
+    queryTable('instructor_credentials', {
+      select: '*,ref_activities(*),ref_qualifications(*),instructor_profiles(id,user_id,users(id,email,display_name,nickname,username,avatar_url))',
+      limit: '200',
+    }, session),
+  ]);
+
+  const services = await attachServiceLocations((serviceResult.data || []).map((row) => normalizeStaffServiceRequest(row)), session);
+  const credentials = (credentialResult.data || []).map((row) => normalizeStaffCredentialRequest(row));
 
   return {
-    ...result,
-    data: await attachServiceLocations((result.data || []).map((row) => normalizeStaffServiceRequest(row))),
+    data: [...services, ...credentials].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt))),
+    error: serviceResult.error || credentialResult.error || null,
+    tableName: serviceResult.error ? serviceResult.tableName : credentialResult.tableName || 'instructor_services',
   };
 }
 
-export async function updateStaffServiceRequestReview({ serviceId, status, staffNote = '' }) {
+export async function updateStaffServiceRequestReview({ serviceId, status, staffNote = '', instructorMessage = '' }) {
   const session = await getActiveSession();
   if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_services' };
   const normalizedStatus = normalizeServiceReviewStatus(status);
   const permissionKey = normalizedStatus === 'Approved' ? 'service.approve' : 'service.reject';
   const permission = await requireStaffAnyPermission([permissionKey, 'service.create'], session);
   if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
+
+  const serviceResult = await queryTable('instructor_services', {
+    select: '*,ref_activities(*),instructor_profiles(id,user_id,users(id,email,display_name,nickname,username,avatar_url))',
+    id: `eq.${serviceId}`,
+    limit: '1',
+  }, session);
+  if (serviceResult.error || !serviceResult.data?.[0]) {
+    return { data: null, error: serviceResult.error || 'service_not_found', tableName: 'instructor_services' };
+  }
+  const service = normalizeStaffServiceRequest(serviceResult.data[0]);
 
   const result = await updateTable('instructor_services', serviceId, {
     service_approval_status: normalizedStatus,
@@ -1526,6 +1706,126 @@ export async function updateStaffServiceRequestReview({ serviceId, status, staff
       targetType: 'instructor_service',
       targetId: serviceId,
       metadata: { staffNote },
+      session,
+    });
+  }
+
+  const shouldMessageInstructor = normalizedStatus !== 'Approved' || instructorMessage.trim();
+  const messageResult = shouldMessageInstructor
+    ? await sendStaffServiceReviewMessage({
+        service,
+        status: normalizedStatus,
+        body: instructorMessage || defaultServiceDecisionMessage(normalizedStatus, service),
+        session,
+      })
+    : { data: null, error: null };
+
+  return {
+    ...result,
+    error: messageResult.error || result.error,
+    tableName: messageResult.error ? messageResult.tableName : result.tableName,
+  };
+}
+
+export async function updateStaffCredentialRequestReview({ credentialId, status, staffNote = '', instructorMessage = '' }) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_credentials' };
+  const normalizedStatus = normalizeServiceReviewStatus(status);
+  const permissionKey = normalizedStatus === 'Approved' ? 'service.approve' : 'service.reject';
+  const permission = await requireStaffAnyPermission([permissionKey, 'service.create'], session);
+  if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
+
+  const credentialResult = await queryTable('instructor_credentials', {
+    select: '*,ref_activities(*),ref_qualifications(*),instructor_profiles(id,user_id,users(id,email,display_name,nickname,username,avatar_url))',
+    id: `eq.${credentialId}`,
+    limit: '1',
+  }, session);
+  if (credentialResult.error || !credentialResult.data?.[0]) {
+    return { data: null, error: credentialResult.error || 'credential_not_found', tableName: 'instructor_credentials' };
+  }
+  const credential = normalizeStaffCredentialRequest(credentialResult.data[0]);
+
+  const result = await updateTable('instructor_credentials', credentialId, {
+    approval_status: normalizedStatus,
+    staff_note: staffNote || null,
+    reviewed_by_staff_member_id: (await fetchCurrentStaffContext()).data?.member?.id || null,
+    reviewed_at: new Date().toISOString(),
+  }, session);
+  if (!result.error) {
+    await insertStaffAuditLog({
+      action: `credential.${normalizedStatus.toLowerCase()}`,
+      targetType: 'instructor_credential',
+      targetId: credentialId,
+      metadata: { staffNote },
+      session,
+    });
+  }
+
+  const shouldMessageInstructor = normalizedStatus !== 'Approved' || instructorMessage.trim();
+  const messageResult = shouldMessageInstructor
+    ? await sendStaffCredentialReviewMessage({
+        credential,
+        status: normalizedStatus,
+        body: instructorMessage || defaultCredentialDecisionMessage(normalizedStatus, credential),
+        session,
+      })
+    : { data: null, error: null };
+
+  return {
+    ...result,
+    error: messageResult.error || result.error,
+    tableName: messageResult.error ? messageResult.tableName : result.tableName,
+  };
+}
+
+export async function updateStaffServicePublicCertificate({ serviceId, file, publicCertificateUrl = '' }) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_services' };
+  const permission = await requireStaffPermission('service.approve', session);
+  if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
+
+  let nextUrl = publicCertificateUrl;
+  if (file) {
+    const uploadResult = await uploadApplicationPhoto(file, 'public-certificates');
+    if (uploadResult.error) return { data: null, error: uploadResult.error, tableName: 'coach-applications' };
+    nextUrl = uploadResult.data;
+  }
+  if (!nextUrl) return { data: null, error: 'missing_public_certificate_url', tableName: 'instructor_services' };
+
+  const result = await updateTable('instructor_services', serviceId, { masked_cert_url: nextUrl }, session);
+  if (!result.error) {
+    await insertStaffAuditLog({
+      action: 'service.public_certificate_updated',
+      targetType: 'instructor_service',
+      targetId: serviceId,
+      metadata: { publicCertificateUrl: nextUrl },
+      session,
+    });
+  }
+  return result;
+}
+
+export async function updateStaffCredentialPublicCertificate({ credentialId, file, publicCertificateUrl = '' }) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_credentials' };
+  const permission = await requireStaffPermission('service.approve', session);
+  if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
+
+  let nextUrl = publicCertificateUrl;
+  if (file) {
+    const uploadResult = await uploadApplicationPhoto(file, 'public-certificates');
+    if (uploadResult.error) return { data: null, error: uploadResult.error, tableName: 'instructor_credentials' };
+    nextUrl = uploadResult.data;
+  }
+  if (!nextUrl) return { data: null, error: 'missing_public_certificate_url', tableName: 'instructor_credentials' };
+
+  const result = await updateTable('instructor_credentials', credentialId, { masked_certificate_url: nextUrl }, session);
+  if (!result.error) {
+    await insertStaffAuditLog({
+      action: 'credential.public_certificate_updated',
+      targetType: 'instructor_credential',
+      targetId: credentialId,
+      metadata: { publicCertificateUrl: nextUrl },
       session,
     });
   }
@@ -1656,10 +1956,117 @@ export async function updateStaffPostModeration({ postId, action, reasonCategory
   return { data: { post: normalizeStaffModerationPost(updateResult.data), message }, error: null, tableName: 'posts' };
 }
 
+export async function moderateComplaintTarget({ complaintId, action, reasonCategory = '', staffNote = '' }) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'complaints' };
+  const permission = await requireStaffPermission('user.block', session);
+  if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
+
+  const result = await queryTable('complaints', {
+    select: '*,reporter:users!complaints_reporter_user_id_fkey(id,email,display_name,nickname,username,avatar_url),reported:users!complaints_reported_user_id_fkey(id,email,display_name,nickname,username,avatar_url)',
+    id: `eq.${complaintId}`,
+    limit: '1',
+  }, session);
+  if (result.error || !result.data?.[0]) return { data: null, error: result.error || 'complaint_not_found', tableName: 'complaints' };
+
+  const complaint = normalizeComplaint(result.data[0]);
+  const target = getComplaintModerationTarget(complaint);
+  if (!target.id || !['post', 'comment'].includes(target.type)) {
+    return { data: null, error: 'unsupported_complaint_target', tableName: 'complaints' };
+  }
+  if ((target.type === 'post' && action !== 'remove_post') || (target.type === 'comment' && action !== 'remove_comment')) {
+    return { data: null, error: 'complaint_target_action_mismatch', tableName: 'complaints' };
+  }
+
+  let actionResult;
+  if (target.type === 'post') {
+    actionResult = await updateStaffPostModeration({
+      postId: target.id,
+      action: 'remove',
+      reasonCategory,
+      staffNote: staffNote || `Removed from complaint ${complaint.id.slice(0, 8)}.`,
+    });
+  } else {
+    actionResult = await removeReportedComment({
+      commentId: target.id,
+      complaint,
+      reasonCategory,
+      staffNote,
+      session,
+    });
+  }
+  if (actionResult.error) return actionResult;
+
+  await updateComplaintReview({
+    complaintId,
+    status: 'in_review',
+    severity: complaint.severity === 'unassigned' ? 'medium' : complaint.severity,
+    priority: complaint.priority || 'normal',
+    staffNote: [complaint.staffNote, `${target.type === 'post' ? 'Post' : 'Comment'} removed from complaint review.`].filter(Boolean).join('\n'),
+  });
+
+  return { data: { complaint, target, moderation: actionResult.data }, error: null, tableName: target.type === 'post' ? 'posts' : 'post_comments' };
+}
+
+async function removeReportedComment({ commentId, complaint, reasonCategory = '', staffNote = '', session }) {
+  const commentResult = await queryTable('post_comments', {
+    select: '*,users(id,email,display_name,nickname,username,avatar_url)',
+    id: `eq.${commentId}`,
+    limit: '1',
+  }, session);
+  if (commentResult.error || !commentResult.data?.[0]) return { data: null, error: commentResult.error || 'comment_not_found', tableName: 'post_comments' };
+
+  const comment = normalizeModerationComment(commentResult.data[0]);
+  const staffMemberId = (await fetchCurrentStaffContext()).data?.member?.id || null;
+  const reviewedAt = new Date().toISOString();
+  let updateResult = await callStaffRemovePostComment({
+    commentId,
+    reasonCategory,
+    staffNote: staffNote || `Removed from complaint ${complaint.id.slice(0, 8)}.`,
+    session,
+  });
+  if (updateResult.error && isMissingRpcError(updateResult.error)) {
+    updateResult = await updateCommentModerationFields(commentId, {
+      status: 'deleted',
+      deleted_at: reviewedAt,
+      moderation_reviewed_by_staff_member_id: staffMemberId,
+      moderation_reviewed_at: reviewedAt,
+      removed_by_staff_member_id: staffMemberId,
+      removal_reason: reasonCategory || null,
+      moderation_note: staffNote || `Removed from complaint ${complaint.id.slice(0, 8)}.`,
+    }, session);
+  }
+  if (updateResult.error) return updateResult;
+
+  await insertStaffAuditLog({
+    action: 'comment.removed',
+    targetType: 'post_comment',
+    targetId: commentId,
+    metadata: { complaintId: complaint.id, reasonCategory, staffNote, postId: comment.postId },
+    session,
+  });
+
+  let message = null;
+  if (comment.userId) {
+    const messageResult = await sendCentralSupportMessage({
+      recipientUserId: comment.userId,
+      body: defaultCommentModerationMessage(comment, reasonCategory),
+      messageType: 'comment_removed_notice',
+      metadata: { comment_id: commentId, post_id: comment.postId, complaint_id: complaint.id, reason_category: reasonCategory },
+      session,
+    });
+    message = messageResult.data;
+    if (messageResult.error) return { data: { comment: updateResult.data, message: null }, error: messageResult.error, tableName: messageResult.tableName };
+  }
+
+  return { data: { comment: updateResult.data, message }, error: null, tableName: 'post_comments' };
+}
+
 function normalizeServiceReviewStatus(status) {
   const value = String(status || '').toLowerCase();
   if (value === 'approved') return 'Approved';
   if (value === 'rejected') return 'Rejected';
+  if (value === 'needs_info' || value === 'needs info' || value === 'needs_information') return 'Needs info';
   return 'Pending';
 }
 
@@ -1671,7 +2078,7 @@ export async function fetchCurrentStaffContext() {
   const memberResult = await queryTable('staff_members', {
     select: '*',
     user_id: `eq.${session.user.id}`,
-    status: 'eq.active',
+    status: 'in.(pending_first_login,active)',
     limit: '1',
   }, session);
 
@@ -1736,7 +2143,45 @@ export async function fetchStaffAuditLogs() {
     order: 'created_at.desc',
     limit: '100',
   }, session);
-  return { ...result, data: (result.data || []).map(normalizeStaffAuditLog) };
+  return { ...result, data: await enrichStaffAuditLogs(result.data || [], session) };
+}
+
+async function enrichStaffAuditLogs(rows, session) {
+  if (!rows.length) return [];
+  const actorUserIds = [...new Set(rows.map((row) => row.actor_user_id).filter(Boolean))];
+  const staffMemberIds = [...new Set(rows.flatMap((row) => [
+    row.staff_member_id,
+    row.target_type === 'staff_member' ? row.target_id : '',
+  ]).filter(Boolean))];
+  const targetUserIds = [...new Set(rows.filter((row) => row.target_type === 'user').map((row) => row.target_id).filter(Boolean))];
+
+  const [actorUsersResult, staffMembersResult, targetUsersResult] = await Promise.all([
+    actorUserIds.length ? queryTable('users', {
+      select: 'id,email,display_name,nickname,username,avatar_url',
+      id: `in.(${actorUserIds.join(',')})`,
+      limit: '200',
+    }, session) : { data: [], error: null },
+    staffMemberIds.length ? queryTable('staff_members', {
+      select: 'id,user_id,email,display_name,department,status',
+      id: `in.(${staffMemberIds.join(',')})`,
+      limit: '200',
+    }, session) : { data: [], error: null },
+    targetUserIds.length ? queryTable('users', {
+      select: 'id,email,display_name,nickname,username,avatar_url',
+      id: `in.(${targetUserIds.join(',')})`,
+      limit: '200',
+    }, session) : { data: [], error: null },
+  ]);
+
+  const actorUsersById = new Map((actorUsersResult.data || []).map((user) => [user.id, user]));
+  const staffMembersById = new Map((staffMembersResult.data || []).map((member) => [member.id, member]));
+  const targetUsersById = new Map((targetUsersResult.data || []).map((user) => [user.id, user]));
+  return rows.map((row) => normalizeStaffAuditLog(row, {
+    actorUser: actorUsersById.get(row.actor_user_id),
+    staffMember: staffMembersById.get(row.staff_member_id),
+    targetStaffMember: row.target_type === 'staff_member' ? staffMembersById.get(row.target_id) : null,
+    targetUser: row.target_type === 'user' ? targetUsersById.get(row.target_id) : null,
+  }));
 }
 
 export async function fetchStaffDirectory() {
@@ -1791,61 +2236,13 @@ export async function fetchStaffRoleCatalog() {
   };
 }
 
-export async function createStaffMemberAccount({ email, displayName = '', department = '', employmentType = '', roleIds = [] }) {
+export async function createStaffMemberAccount({ email, displayName = '', department = '', employmentType = '', temporaryPassword = '', roleIds = [] }) {
   const session = await getActiveSession();
   if (!session) return { data: null, error: 'auth_required', tableName: 'staff_members' };
   const permission = await requireSuperAdminStaff();
   if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
 
-  const serverResult = await createStaffMemberOnServer({ email, displayName, department, employmentType, roleIds }, session);
-  if (!serverResult.error) return serverResult;
-  const serverError = serverResult.error;
-
-  const targetEmail = String(email || '').trim().toLowerCase();
-  if (!targetEmail) return { data: null, error: 'missing_email', tableName: 'users' };
-
-  const userResult = await queryTable('users', {
-    select: 'id,email,display_name,nickname,username',
-    email: `eq.${targetEmail}`,
-    limit: '1',
-  }, session);
-  if (userResult.error) return { data: null, error: userResult.error, tableName: 'users' };
-  const user = userResult.data?.[0];
-  if (!user?.id) return { data: null, error: serverError || 'user_not_found_register_user_first', tableName: 'users' };
-
-  const existingResult = await queryTable('staff_members', {
-    select: '*',
-    user_id: `eq.${user.id}`,
-    limit: '1',
-  }, session);
-  if (existingResult.error) return { data: null, error: existingResult.error, tableName: 'staff_members' };
-
-  const payload = {
-    user_id: user.id,
-    email: targetEmail,
-    display_name: displayName || user.nickname || user.display_name || user.username || targetEmail,
-    department: department || null,
-    status: 'active',
-    created_by: session.user.id,
-  };
-  const memberResult = existingResult.data?.[0]?.id
-    ? await updateTable('staff_members', existingResult.data[0].id, payload, session)
-    : await insertTable('staff_members', payload, session);
-  if (memberResult.error) return memberResult;
-
-  const member = Array.isArray(memberResult.data) ? memberResult.data[0] : memberResult.data;
-  const roleResult = await replaceStaffMemberRoles(member.id, roleIds, session);
-  if (roleResult.error) return { data: member, error: roleResult.error, tableName: roleResult.tableName };
-
-  await insertStaffAuditLog({
-    action: existingResult.data?.[0]?.id ? 'staff.updated' : 'staff.created',
-    targetType: 'staff_member',
-    targetId: member.id,
-    metadata: { email: targetEmail, department, employmentType, roleIds },
-    session,
-  });
-
-  return { data: member, error: null, tableName: 'staff_members' };
+  return createStaffMemberOnServer({ email, displayName, department, employmentType, temporaryPassword, roleIds }, session);
 }
 
 export async function updateStaffMemberAccount({ staffMemberId, displayName, department, status, roleIds = null }) {
@@ -1854,30 +2251,7 @@ export async function updateStaffMemberAccount({ staffMemberId, displayName, dep
   const permission = await requireSuperAdminStaff();
   if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
 
-  const payload = {};
-  if (displayName !== undefined) payload.display_name = displayName || null;
-  if (department !== undefined) payload.department = department || null;
-  if (status !== undefined) payload.status = status;
-
-  const memberResult = Object.keys(payload).length
-    ? await updateTable('staff_members', staffMemberId, payload, session)
-    : { data: null, error: null, tableName: 'staff_members' };
-  if (memberResult.error) return memberResult;
-
-  if (Array.isArray(roleIds)) {
-    const roleResult = await replaceStaffMemberRoles(staffMemberId, roleIds, session);
-    if (roleResult.error) return { data: memberResult.data, error: roleResult.error, tableName: roleResult.tableName };
-  }
-
-  await insertStaffAuditLog({
-    action: status === 'suspended' ? 'staff.suspended' : status === 'offboarded' ? 'staff.offboarded' : 'staff.updated',
-    targetType: 'staff_member',
-    targetId: staffMemberId,
-    metadata: { displayName, department, status, roleIds },
-    session,
-  });
-
-  return { data: memberResult.data, error: null, tableName: 'staff_members' };
+  return updateStaffMemberOnServer({ staffMemberId, displayName, department, status, roleIds }, session);
 }
 
 export async function fetchUserBlocks() {
@@ -1907,16 +2281,22 @@ export async function createComplaintReport({
   if (!session) return { data: null, error: 'auth_required', tableName: 'complaints' };
   const accountCheck = await requireInteractiveAccount('complaints');
   if (accountCheck.error) return { data: null, ...accountCheck };
+  const normalizedTargetType = normalizeComplaintTargetType(targetType);
+  const normalizedReportedUserId = isUuid(reportedUserId) ? reportedUserId : null;
 
   return insertTable('complaints', {
     reporter_user_id: session.user.id,
-    reported_user_id: reportedUserId || null,
-    target_type: targetType || 'other',
+    reported_user_id: normalizedReportedUserId,
+    target_type: normalizedTargetType,
     target_id: targetId ? String(targetId) : null,
     reason_category: reasonCategory,
     description: description || null,
     evidence_url: evidenceUrl || null,
-    evidence_metadata: evidenceMetadata || {},
+    evidence_metadata: {
+      ...(evidenceMetadata || {}),
+      raw_target_type: targetType || '',
+      raw_reported_user_id: reportedUserId || '',
+    },
     status: 'new',
     severity: 'unassigned',
   }, session);
@@ -1928,16 +2308,53 @@ export async function fetchStaffComplaints() {
   const permission = await requireStaffAnyPermission(['user.block', 'audit.view'], session);
   if (permission.error) return { data: [], error: permission.error, tableName: permission.tableName };
 
-  const result = await queryTable('complaints', {
-    select: '*,reporter:users!complaints_reporter_user_id_fkey(id,email,display_name,nickname,username,avatar_url),reported:users!complaints_reported_user_id_fkey(id,email,display_name,nickname,username,avatar_url)',
+  const selectWithAssignee = '*,reporter:users!complaints_reporter_user_id_fkey(id,email,display_name,nickname,username,avatar_url),reported:users!complaints_reported_user_id_fkey(id,email,display_name,nickname,username,avatar_url),assignedStaff:staff_members!complaints_assigned_staff_member_id_fkey(id,email,display_name,department)';
+  const baseSelect = '*,reporter:users!complaints_reporter_user_id_fkey(id,email,display_name,nickname,username,avatar_url),reported:users!complaints_reported_user_id_fkey(id,email,display_name,nickname,username,avatar_url)';
+  let result = await queryTable('complaints', {
+    select: selectWithAssignee,
     order: 'created_at.desc',
     limit: '200',
   }, session);
+  if (result.error) {
+    result = await queryTable('complaints', {
+      select: baseSelect,
+      order: 'created_at.desc',
+      limit: '200',
+    }, session);
+  }
 
   return { ...result, data: (result.data || []).map(normalizeComplaint) };
 }
 
-export async function updateComplaintReview({ complaintId, status, severity = '', staffNote = '', priority = '', assignedTeam = '', slaDueAt = '' }) {
+export async function claimComplaint({ complaintId }) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'complaints' };
+  const permission = await requireStaffAnyPermission(['user.block', 'audit.view'], session);
+  if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
+
+  const staffMemberId = permission.data?.member?.id || null;
+  const payload = {
+    assigned_staff_member_id: staffMemberId,
+    assigned_team: 'Customer Support',
+    status: 'in_review',
+    reviewed_by: session.user.id,
+    reviewed_at: new Date().toISOString(),
+  };
+
+  const result = await updateTable('complaints', complaintId, payload, session);
+  if (!result.error) {
+    await insertStaffAuditLog({
+      action: 'complaint.claimed',
+      targetType: 'complaint',
+      targetId: complaintId,
+      metadata: { assignedStaffMemberId: staffMemberId, assignedTeam: 'Customer Support' },
+      session,
+    });
+  }
+  return result;
+}
+
+export async function updateComplaintReview({ complaintId, status, severity = '', staffNote = '', priority = '', assignedTeam = undefined, slaDueAt = undefined }) {
   const session = await getActiveSession();
   if (!session) return { data: null, error: 'auth_required', tableName: 'complaints' };
   const permission = await requireStaffAnyPermission(['user.block', 'audit.view'], session);
@@ -2110,6 +2527,7 @@ export async function fetchSuspensionReviewQueue() {
       detail: block.reasonCategory ? humanizeKey(block.reasonCategory) : block.reason || block.status,
       createdAt: block.createdAt,
       weight: block.active ? 5 : 3,
+      blockId: block.id,
     });
   });
 
@@ -2133,6 +2551,7 @@ export async function fetchSuspensionReviewQueue() {
       detail: 'Credential or service approval requires staff attention',
       createdAt: '',
       weight: String(row.service_approval_status || '').toLowerCase() === 'rejected' ? 3 : 1,
+      serviceId: row.id,
     });
   });
 
@@ -2144,6 +2563,7 @@ export async function fetchSuspensionReviewQueue() {
       detail: `${rows.length} recent comments`,
       createdAt: rows[0].created_at,
       weight: rows.length >= 8 ? 3 : 1,
+      commentIds: rows.map((row) => row.id).filter(Boolean),
     });
   });
 
@@ -2154,15 +2574,55 @@ export async function fetchSuspensionReviewQueue() {
       detail: `${rows.length} cancelled or rejected booking records`,
       createdAt: rows[0].created_at,
       weight: rows.length >= 3 ? 4 : 2,
+      bookingIds: rows.map((row) => row.id).filter(Boolean),
     });
   });
 
   const enriched = await enrichSuspensionAccounts([...candidates.values()], session);
+  const enrichedUserIds = enriched.map((account) => account.id).filter(Boolean);
+  const reviewResult = enrichedUserIds.length ? await queryTable('user_risk_reviews', {
+    select: '*',
+    user_id: `in.(${enrichedUserIds.join(',')})`,
+    order: 'reviewed_at.desc',
+    limit: '500',
+  }, session) : { data: [], error: null };
+  const reviewsByUser = groupBy(reviewResult.data || [], (row) => row.user_id);
+  const visibleAccounts = enriched.filter((account) => {
+    if (account.activeSuspension) return true;
+    const latestSignalAt = account.lastSignalAt ? new Date(account.lastSignalAt).getTime() : 0;
+    const latestReview = (reviewsByUser.get(account.id) || [])[0];
+    const reviewedAt = latestReview?.reviewed_at ? new Date(latestReview.reviewed_at).getTime() : 0;
+    return !reviewedAt || latestSignalAt > reviewedAt + 1000;
+  });
   return {
-    data: enriched.sort((a, b) => b.riskScore - a.riskScore || new Date(b.lastSignalAt || 0) - new Date(a.lastSignalAt || 0)),
-    error: blocksResult.error || complaintsResult.error || servicesResult.error || commentsResult.error || bookingsResult.error || null,
+    data: visibleAccounts.sort((a, b) => b.riskScore - a.riskScore || new Date(b.lastSignalAt || 0) - new Date(a.lastSignalAt || 0)),
+    error: blocksResult.error || complaintsResult.error || servicesResult.error || commentsResult.error || bookingsResult.error || reviewResult.error || null,
     tableName: blocksResult.tableName || 'users',
   };
+}
+
+export async function markSuspensionRiskReviewed({ userId, note = '' }) {
+  const session = await getActiveSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'user_risk_reviews' };
+  const permission = await requireStaffPermission('user.block', session);
+  if (permission.error) return { data: null, error: permission.error, tableName: permission.tableName };
+  const staffContext = await fetchCurrentStaffContext();
+  const result = await insertTable('user_risk_reviews', {
+    user_id: userId,
+    reviewed_by_staff_member_id: staffContext.data?.member?.id || null,
+    reviewed_at: new Date().toISOString(),
+    note: note || null,
+  }, session);
+  if (!result.error) {
+    await insertStaffAuditLog({
+      action: 'user_risk.reviewed',
+      targetType: 'user',
+      targetId: userId,
+      metadata: { note },
+      session,
+    });
+  }
+  return result;
 }
 
 export async function searchSuspensionAccounts(query) {
@@ -2633,10 +3093,11 @@ function normalizeInstructorService(row) {
   return {
     id: row.id,
     activityId: row.activity_id,
-    title: humanizeKey(activity.translation_key || activity.category_key || 'Coaching session'),
+    qualificationId: row.qualification_id || '',
+    title: activityDisplayName(activity, 'Coaching session'),
     activityKey: activity.translation_key || activity.category_key || '',
     iconName: activity.icon_name || '',
-    qualification: qualification.qualification_name || '',
+    qualification: cleanDisplayText(qualification.qualification_name || ''),
     years: row.years_of_experience || 0,
     attainmentYear: row.attainment_year || null,
     tags: row.tags || [],
@@ -2645,6 +3106,7 @@ function normalizeInstructorService(row) {
     status: row.service_approval_status || 'Pending',
     rawCertUrl: row.raw_cert_url || '',
     maskedCertUrl: row.masked_cert_url || '',
+    activityImageUrls: Array.isArray(row.activity_image_urls) ? row.activity_image_urls.filter(Boolean) : [],
     pricing: pricingRows.map((pricing) => ({
       id: pricing.id,
       skillLevel: pricing.skill_level,
@@ -2665,7 +3127,7 @@ function normalizeService(row) {
   const activity = row.ref_activities || {};
   return {
     id: row.id || row.render_id,
-    title: row.title || row.name || metadata.title || humanizeKey(activity.translation_key || activity.category_key || 'Untitled service'),
+    title: cleanDisplayText(row.title || row.name || metadata.title || activityDisplayName(activity, 'Untitled service')),
     coachName: row.coach_name || metadata.coach_name || 'GuideNextdoor coach',
     status: row.service_approval_status || row.status || metadata.status || 'draft',
     location: row.location || metadata.location || 'Location to confirm',
@@ -2673,14 +3135,14 @@ function normalizeService(row) {
   };
 }
 
-async function attachServiceLocations(services) {
+async function attachServiceLocations(services, session = null) {
   const serviceIds = services.map((service) => service.id).filter(Boolean);
   if (!serviceIds.length) return services;
 
   const coverageResult = await queryTable('service_coverage_areas', {
     select: '*',
     service_id: `in.(${serviceIds.join(',')})`,
-  });
+  }, session);
   if (coverageResult.error || !coverageResult.data.length) return services;
 
   const locationIds = [...new Set(coverageResult.data.map((row) => row.location_id).filter(Boolean))];
@@ -2688,7 +3150,7 @@ async function attachServiceLocations(services) {
     ? await queryTable('locations', {
         select: '*',
         id: `in.(${locationIds.join(',')})`,
-      })
+      }, session)
     : { data: [] };
   const locationById = new Map((locationResult.data || []).map((location) => [location.id, normalizeLocation(location)]));
 
@@ -2855,6 +3317,19 @@ function humanizeKey(value) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+function activityDisplayName(activity, fallback = 'Activity') {
+  return cleanDisplayText(activity?.name || activity?.title || activity?.translation_key || activity?.category_key || fallback);
+}
+
+function cleanDisplayText(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text
+    .replace(/activity[._-]+([a-z0-9_-]+)/gi, (_, key) => humanizeKey(key))
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function inferLocationFromText(...parts) {
@@ -3842,12 +4317,82 @@ async function updatePostModerationFields(postId, payload, session) {
   return lastResult;
 }
 
+async function updateCommentModerationFields(commentId, payload, session) {
+  const attempts = [
+    payload,
+    {
+      status: payload.status,
+      deleted_at: payload.deleted_at,
+      moderation_reviewed_by_staff_member_id: payload.moderation_reviewed_by_staff_member_id,
+      moderation_reviewed_at: payload.moderation_reviewed_at,
+      removal_reason: payload.removal_reason,
+      moderation_note: payload.moderation_note,
+    },
+    {
+      status: payload.status,
+      deleted_at: payload.deleted_at,
+    },
+  ];
+  let lastResult = { data: null, error: 'comment_moderation_update_failed', tableName: 'post_comments' };
+  for (const attempt of attempts) {
+    const filtered = Object.fromEntries(Object.entries(attempt).filter(([, value]) => value !== undefined));
+    lastResult = await updateTable('post_comments', commentId, filtered, session);
+    if (!lastResult.error) return lastResult;
+    if (!String(lastResult.error).includes('column')) break;
+  }
+  return lastResult;
+}
+
+async function callStaffRemovePostComment({ commentId, reasonCategory = '', staffNote = '', session }) {
+  if (!databaseStatus.hasConfig) return { data: null, error: 'missing_config', tableName: 'post_comments' };
+  let response;
+  try {
+    response = await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/rpc/staff_remove_post_comment`, {
+      method: 'POST',
+      headers: {
+        ...buildHeaders(session),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        p_comment_id: commentId,
+        p_reason: reasonCategory || null,
+        p_note: staffNote || null,
+      }),
+    });
+  } catch (error) {
+    return { data: null, error: error.message || String(error), tableName: 'post_comments' };
+  }
+
+  if (!response.ok) return { data: null, error: await response.text(), tableName: 'post_comments' };
+  const data = await response.json();
+  return { data, error: null, tableName: 'post_comments' };
+}
+
+function isMissingRpcError(error) {
+  const text = String(error || '').toLowerCase();
+  return text.includes('staff_remove_post_comment') && (text.includes('could not find') || text.includes('pgrst202') || text.includes('schema cache'));
+}
+
 function defaultPostModerationMessage(action, post, reasonCategory) {
   if (action === 'restore') {
     return `Hi, GuideNextdoor Support has restored your post "${post.title}". It is visible again on GuideNextdoor.`;
   }
   const reason = reasonCategory ? ` Reason: ${humanizeKey(reasonCategory)}.` : '';
   return `Hi, GuideNextdoor Support removed your post "${post.title}" after review.${reason} You can reply here if you need clarification.`;
+}
+
+function defaultCommentModerationMessage(comment, reasonCategory) {
+  const reason = reasonCategory ? ` Reason: ${humanizeKey(reasonCategory)}.` : '';
+  return `Hi, GuideNextdoor Support removed your comment after review.${reason} You can reply here if you need clarification.`;
+}
+
+function getComplaintModerationTarget(complaint) {
+  const metadata = complaint.evidenceMetadata || {};
+  const type = String(metadata.raw_target_type || complaint.targetType || '').toLowerCase();
+  if (type === 'comment') return { type: 'comment', id: metadata.comment_id || complaint.targetId || '' };
+  if (type === 'post') return { type: 'post', id: metadata.post_id || complaint.targetId || '' };
+  return { type, id: complaint.targetId || '' };
 }
 
 async function createInteraction(tableName, postId, session = null) {
@@ -4186,15 +4731,39 @@ async function createStaffMemberOnServer(payload, session) {
   return { data: body?.data || null, error: body?.error || null, tableName: 'staff_members' };
 }
 
-async function replaceStaffMemberRoles(staffMemberId, roleIds, session) {
-  await deleteTable('staff_member_roles', { staff_member_id: `eq.${staffMemberId}` }, session);
-  const uniqueRoleIds = [...new Set((roleIds || []).filter(Boolean))];
-  if (!uniqueRoleIds.length) return { data: null, error: null, tableName: 'staff_member_roles' };
-  return insertTable('staff_member_roles', uniqueRoleIds.map((roleId) => ({
-    staff_member_id: staffMemberId,
-    role_id: roleId,
-    assigned_by: session.user.id,
-  })), session, 'return=minimal');
+async function updateStaffMemberOnServer(payload, session) {
+  if (!databaseStatus.hasConfig) {
+    return { data: null, error: 'missing_config', tableName: 'staff_members' };
+  }
+
+  let response;
+  try {
+    response = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/update-staff-member`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    return { data: null, error: error.message || String(error), tableName: 'staff_members' };
+  }
+
+  const text = await response.text();
+  let body;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = { error: text };
+  }
+
+  if (!response.ok) {
+    return { data: null, error: body?.error || response.statusText, tableName: 'staff_members' };
+  }
+
+  return { data: body?.data || null, error: body?.error || null, tableName: 'staff_members' };
 }
 
 function buildEmptyStaffContext() {
@@ -4242,6 +4811,8 @@ function normalizeStaffMember(row) {
     department: row.department || '',
     status: row.status || 'active',
     lastActiveAt: row.last_active_at || '',
+    forcePasswordChange: Boolean(row.force_password_change) || row.status === 'pending_first_login',
+    passwordChangedAt: row.password_changed_at || '',
   };
 }
 
@@ -4275,17 +4846,124 @@ function normalizeStaffRole(row, permissionRows = []) {
   };
 }
 
-function normalizeStaffAuditLog(row) {
+function normalizeStaffAuditLog(row, context = {}) {
+  const metadata = row.metadata || {};
+  const action = row.action || '';
+  const actorName = context.staffMember?.display_name || displayUserName(context.actorUser) || 'GuideNextdoor staff';
+  const actorEmail = context.staffMember?.email || context.actorUser?.email || '';
+  const targetName = buildAuditTargetName(row.target_type || '', row.target_id || '', metadata, context);
+  const targetEmail = context.targetStaffMember?.email || context.targetUser?.email || metadata.email || '';
   return {
     id: row.id,
-    action: row.action || '',
+    action,
+    actionLabel: buildAuditActionLabel(action),
+    summary: buildAuditSummary(action, row.target_type || '', row.target_id || '', metadata, { actorName, targetName }),
+    targetLabel: targetName || buildAuditTargetLabel(row.target_type || '', row.target_id || '', metadata),
+    targetName,
+    targetEmail,
     targetType: row.target_type || '',
     targetId: row.target_id || '',
-    metadata: row.metadata || {},
+    metadata,
     createdAt: row.created_at || '',
     actorUserId: row.actor_user_id || '',
     staffMemberId: row.staff_member_id || '',
+    actorName,
+    actorEmail,
   };
+}
+
+function buildAuditActionLabel(action) {
+  const labels = {
+    'application.approved': 'Coach application approved',
+    'application.rejected': 'Coach application rejected',
+    'application.needs_info': 'More information requested',
+    'application.public_certificate_updated': 'Public certificate updated',
+    'service.created': 'Instructor service created',
+    'service.approved': 'Service approved',
+    'service.rejected': 'Service rejected',
+    'post.removed': 'Post removed',
+    'post.restored': 'Post restored',
+    'post.reviewed': 'Post reviewed',
+    'complaint.in_review': 'Complaint moved to review',
+    'complaint.needs_more_info': 'Complaint needs more information',
+    'complaint.resolved': 'Complaint resolved',
+    'complaint.dismissed': 'Complaint dismissed',
+    'complaint.sent_to_suspension': 'Complaint sent to suspension',
+    'complaint.message_reporter': 'Reporter messaged',
+    'complaint.message_reported': 'Reported user messaged',
+    'user_risk.reviewed': 'Risk profile marked reviewed',
+    'user.suspended_temporarily': 'Account temporarily suspended',
+    'user.suspended_permanently': 'Account permanently suspended',
+    'user.unblocked': 'Suspension uplifted',
+    'staff.created': 'Staff account created',
+    'staff.updated': 'Staff account updated',
+    'staff.suspended': 'Staff account suspended',
+    'staff.offboarded': 'Staff account offboarded',
+  };
+  return labels[action] || humanizeKey(action);
+}
+
+function buildAuditSummary(action, targetType, targetId, metadata, context = {}) {
+  const actor = context.actorName || 'A staff member';
+  const target = context.targetName || buildAuditTargetLabel(targetType, targetId, metadata);
+  if (action === 'staff.created') {
+    return `${actor} created staff access for ${target || metadata.email || 'a staff member'}${metadata.department ? ` in ${metadata.department}` : ''}.`;
+  }
+  if (action === 'staff.updated' || action === 'staff.suspended' || action === 'staff.offboarded') {
+    return `${actor} updated staff access${target ? ` for ${target}` : ''}${metadata.status ? ` to ${metadata.status}` : ''}.`;
+  }
+  if (action === 'user_risk.reviewed') {
+    return `${actor} marked ${target || 'a user profile'} as reviewed and removed it from the Suspension review queue until a newer risk signal appears.`;
+  }
+  if (action.startsWith('user.suspended')) {
+    return `${actor} suspended ${target || 'a user profile'}. ${metadata.reasonCategory ? `${humanizeKey(metadata.reasonCategory)}. ` : ''}${metadata.blockedUntil ? `Suspension ends ${formatDisplayDate(metadata.blockedUntil)}.` : 'No automatic end date.'}`;
+  }
+  if (action === 'user.unblocked') return `${actor} uplifted an active suspension and account access resumed.`;
+  if (action.startsWith('post.')) {
+    return `${metadata.reason_category ? `${humanizeKey(metadata.reason_category)}. ` : ''}${metadata.moderation_action ? `Action: ${humanizeKey(metadata.moderation_action)}.` : 'Post moderation action recorded.'}`;
+  }
+  if (action.startsWith('complaint.')) {
+    return `${metadata.severity ? `Severity: ${humanizeKey(metadata.severity)}. ` : ''}${metadata.priority ? `Priority: ${humanizeKey(metadata.priority)}.` : 'Complaint workflow updated.'}`;
+  }
+  if (action.startsWith('application.')) {
+    return metadata.staffNote ? `Staff note: ${metadata.staffNote}` : 'Coach application review updated.';
+  }
+  if (action.startsWith('service.')) {
+    return metadata.staffNote ? `Staff note: ${metadata.staffNote}` : 'Service review updated.';
+  }
+  return targetType ? `Updated ${humanizeKey(targetType)}${targetId ? ` ${shortId(targetId)}` : ''}.` : 'Staff action recorded.';
+}
+
+function buildAuditTargetName(targetType, targetId, metadata, context = {}) {
+  if (targetType === 'staff_member' && context.targetStaffMember) {
+    return context.targetStaffMember.display_name || context.targetStaffMember.email || '';
+  }
+  if (targetType === 'user' && context.targetUser) {
+    return displayUserName(context.targetUser);
+  }
+  if (metadata.email) return metadata.email;
+  if (metadata.displayName) return metadata.displayName;
+  return buildAuditTargetLabel(targetType, targetId, metadata);
+}
+
+function buildAuditTargetLabel(targetType, targetId, metadata) {
+  if (metadata.email) return metadata.email;
+  if (metadata.displayName) return metadata.displayName;
+  if (metadata.reasonCategory) return humanizeKey(metadata.reasonCategory);
+  if (metadata.reason_category) return humanizeKey(metadata.reason_category);
+  if (!targetType) return 'GuideNextdoor';
+  if (targetType === 'staff_member') return 'Staff member';
+  if (targetType === 'user') return 'User profile';
+  if (targetType === 'user_block') return 'Suspension record';
+  if (targetType === 'coach_application') return 'Coach application';
+  if (targetType === 'instructor_service') return 'Instructor service';
+  return `${humanizeKey(targetType)}${targetId ? ` ${shortId(targetId)}` : ''}`;
+}
+
+function shortId(value) {
+  const text = String(value || '');
+  if (text.length <= 12) return text;
+  return `${text.slice(0, 8)}...`;
 }
 
 function normalizeUserBlock(row) {
@@ -4318,14 +4996,17 @@ function normalizeUserBlock(row) {
 function normalizeComplaint(row) {
   const reporter = row.reporter || {};
   const reported = row.reported || {};
+  const assignedStaff = row.assignedStaff || {};
   const reasonCategory = row.reason_category || 'other';
   return {
     id: row.id,
     reporterUserId: row.reporter_user_id || '',
     reporterName: displayUserName(reporter),
+    reporterNickname: reporter.nickname || reporter.display_name || reporter.username || '',
     reporterEmail: reporter.email || '',
     reportedUserId: row.reported_user_id || '',
     reportedName: displayUserName(reported),
+    reportedNickname: reported.nickname || reported.display_name || reported.username || '',
     reportedEmail: reported.email || '',
     reportedAvatarUrl: reported.avatar_url || '',
     targetType: row.target_type || 'other',
@@ -4340,6 +5021,9 @@ function normalizeComplaint(row) {
     priority: row.priority || 'normal',
     assignedTeam: row.assigned_team || '',
     assignedStaffMemberId: row.assigned_staff_member_id || '',
+    assignedStaffName: assignedStaff.display_name || assignedStaff.email || '',
+    assignedStaffEmail: assignedStaff.email || '',
+    assignedStaffDepartment: assignedStaff.department || '',
     slaDueAt: row.sla_due_at || '',
     staffNote: row.staff_note || '',
     reviewedBy: row.reviewed_by || '',
@@ -4357,6 +5041,12 @@ function mapComplaintReasonToSuspensionReason(reason) {
   if (value.includes('spam') || value.includes('scam')) return 'spam_or_abuse';
   if (value.includes('unsafe') || value.includes('harassment')) return 'safety_review';
   return 'policy_violation';
+}
+
+function normalizeComplaintTargetType(value) {
+  const allowed = new Set(['post', 'comment', 'profile', 'service', 'message', 'booking', 'user', 'other']);
+  const normalized = String(value || '').trim().toLowerCase();
+  return allowed.has(normalized) ? normalized : 'other';
 }
 
 async function enrichSuspensionAccounts(accounts, session) {
@@ -4494,12 +5184,42 @@ function normalizeStaffServiceRequest(row) {
   const user = profile.users || {};
   return {
     ...service,
+    requestType: 'service',
     instructorId: row.instructor_id || profile.id || '',
     instructorUserId: profile.user_id || user.id || '',
     coachName: displayUserName(user),
     coachEmail: user.email || '',
     coachAvatarUrl: user.avatar_url || '',
     status: row.service_approval_status || 'Pending',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+  };
+}
+
+function normalizeStaffCredentialRequest(row) {
+  const credential = normalizeInstructorCredential(row);
+  const profile = row.instructor_profiles || {};
+  const user = profile.users || {};
+  return {
+    ...credential,
+    requestType: 'credential',
+    title: credential.title,
+    qualification: credential.qualification,
+    instructorId: row.instructor_id || profile.id || '',
+    instructorUserId: profile.user_id || user.id || '',
+    coachName: displayUserName(user),
+    coachEmail: user.email || '',
+    coachAvatarUrl: user.avatar_url || '',
+    rawCertUrl: row.raw_certificate_url || '',
+    maskedCertUrl: row.masked_certificate_url || '',
+    description: row.staff_note || '',
+    locations: [],
+    pricing: [],
+    activityImageUrls: [],
+    minDurationHours: null,
+    minPrice: null,
+    currency: '',
+    status: row.approval_status || 'Pending',
     createdAt: row.created_at || '',
     updatedAt: row.updated_at || '',
   };
@@ -4741,6 +5461,61 @@ async function sendStaffApplicationMessage({ application, status, body, session 
     }
   }
   return result;
+}
+
+async function sendStaffServiceReviewMessage({ service, status, body, session }) {
+  if (!service?.instructorUserId) return { data: null, error: 'instructor_user_not_found', tableName: 'instructor_services' };
+  return sendCentralSupportMessage({
+    recipientUserId: service.instructorUserId,
+    body,
+    messageType: 'service_review_update',
+    metadata: {
+      service_id: service.id,
+      service_status: status,
+      service_title: service.title,
+      system_generated: true,
+    },
+    session,
+  });
+}
+
+async function sendStaffCredentialReviewMessage({ credential, status, body, session }) {
+  if (!credential?.instructorUserId) return { data: null, error: 'instructor_user_not_found', tableName: 'instructor_credentials' };
+  return sendCentralSupportMessage({
+    recipientUserId: credential.instructorUserId,
+    body,
+    messageType: 'credential_review_update',
+    metadata: {
+      credential_id: credential.id,
+      credential_status: status,
+      credential_title: credential.qualification,
+      activity_title: credential.title,
+      system_generated: true,
+    },
+    session,
+  });
+}
+
+function defaultServiceDecisionMessage(status, service) {
+  const title = service?.title || 'your service request';
+  if (status === 'Rejected') {
+    return `Hi ${service?.coachName || 'there'}, GuideNextdoor reviewed ${title} and could not approve it yet. Please review the staff notes and submit an updated service when ready.`;
+  }
+  if (status === 'Needs info') {
+    return `Hi ${service?.coachName || 'there'}, GuideNextdoor needs more information before reviewing ${title}. Please reply here with the requested details.`;
+  }
+  return `Hi ${service?.coachName || 'there'}, GuideNextdoor reviewed ${title}.`;
+}
+
+function defaultCredentialDecisionMessage(status, credential) {
+  const title = credential?.qualification || 'your credential';
+  if (status === 'Rejected') {
+    return `Hi ${credential?.coachName || 'there'}, GuideNextdoor reviewed ${title} and could not approve it yet. Please review the staff notes and submit an updated credential when ready.`;
+  }
+  if (status === 'Needs info') {
+    return `Hi ${credential?.coachName || 'there'}, GuideNextdoor needs more information before reviewing ${title}. Please reply here with the requested details.`;
+  }
+  return `Hi ${credential?.coachName || 'there'}, GuideNextdoor reviewed ${title}.`;
 }
 
 async function sendCentralSupportMessage({ recipientUserId, body, messageType, metadata = {}, session }) {
@@ -4986,6 +5761,45 @@ export async function deleteInstructorService(serviceId) {
   return updateTable("instructor_services", serviceId, { is_active: false }, session);
 }
 
+export async function createInstructorCredential(payload) {
+  const session = getCurrentSession();
+  if (!session) return { data: null, error: 'auth_required', tableName: 'instructor_credentials' };
+  const accountCheck = await requireInteractiveAccount('instructor_credentials');
+  if (accountCheck.error) return { data: null, ...accountCheck };
+
+  let finalQualId = payload.qualificationId === 'custom' ? null : (payload.qualificationId || null);
+  let customQualification = String(payload.customQualification || '').trim();
+
+  if (payload.qualificationId === 'custom' && customQualification) {
+    const qualResult = await insertTable('ref_qualifications', {
+      activity_id: payload.activityId,
+      qualification_name: customQualification,
+      is_verified: false,
+    }, session);
+    if (!qualResult.error && qualResult.data) {
+      const qualification = Array.isArray(qualResult.data) ? qualResult.data[0] : qualResult.data;
+      finalQualId = qualification.id;
+    }
+  }
+
+  let certUrl = '';
+  if (payload.certFile) {
+    const uploadResult = await uploadFile('posts', payload.certFile, `credential-certificates/${Date.now()}-${Math.random().toString(36).slice(2)}-${payload.certFile.name || 'certificate.jpg'}`);
+    if (uploadResult.error) return { data: null, error: uploadResult.error, tableName: 'storage.objects' };
+    certUrl = uploadResult.data;
+  }
+
+  return insertTable('instructor_credentials', {
+    instructor_id: payload.instructorId,
+    activity_id: payload.activityId || null,
+    qualification_id: finalQualId,
+    custom_qualification_name: finalQualId ? null : customQualification,
+    attainment_year: Number(payload.attainmentYear) || null,
+    raw_certificate_url: certUrl || null,
+    approval_status: 'Pending',
+  }, session);
+}
+
 export async function createInstructorService(payload) {
   const session = getCurrentSession();
   if (!session) return { data: null, error: "auth_required" };
@@ -4994,6 +5808,9 @@ export async function createInstructorService(payload) {
 
   let finalQualId = payload.qualificationId === 'custom' ? null : (payload.qualificationId || null);
   let certUrl = null;
+  const activityImageUploadResult = await uploadServiceActivityImages(payload.activityImageFiles || []);
+  if (activityImageUploadResult.error) return { data: null, error: activityImageUploadResult.error, tableName: 'storage.objects' };
+  const activityImageUrls = activityImageUploadResult.data;
 
   // 1. Handle Custom Qualification & Upload
   if (payload.qualificationId === 'custom' && payload.customQualification) {
@@ -5010,7 +5827,8 @@ export async function createInstructorService(payload) {
 
   // Handle Certificate Upload
   if (payload.certFile) {
-    const uploadResult = await uploadFile('certificates', payload.certFile);
+    const uploadResult = await uploadFile('posts', payload.certFile, `service-certificates/${Date.now()}-${Math.random().toString(36).slice(2)}-${payload.certFile.name || 'certificate.jpg'}`);
+    if (uploadResult.error) return { data: null, error: uploadResult.error, tableName: 'storage.objects' };
     if (!uploadResult.error) {
       certUrl = uploadResult.data;
     }
@@ -5025,6 +5843,7 @@ export async function createInstructorService(payload) {
     service_description: payload.description,
     min_duration_hours: Number(payload.minDurationHours) || 1,
     raw_cert_url: certUrl,
+    activity_image_urls: activityImageUrls,
     is_active: false,
     service_approval_status: "Pending",
   }, session);
@@ -5041,7 +5860,8 @@ export async function createInstructorService(payload) {
       price_1_pax: Number(p.price1) || null,
       extra_person_fee: Number(p.extraPersonFee) || 0,
     }));
-    await insertTable("instructor_pricing", pricingPayloads, session, "return=minimal");
+    const pricingResult = await insertTable("instructor_pricing", pricingPayloads, session, "return=minimal");
+    if (pricingResult.error) return { data: service, error: pricingResult.error, tableName: 'instructor_pricing' };
   }
 
   // 4. Insert locations
@@ -5050,7 +5870,8 @@ export async function createInstructorService(payload) {
       service_id: service.id,
       location_id: locId,
     }));
-    await insertTable("service_coverage_areas", locationPayloads, session, "return=minimal");
+    const locationResult = await insertTable("service_coverage_areas", locationPayloads, session, "return=minimal");
+    if (locationResult.error) return { data: service, error: locationResult.error, tableName: 'service_coverage_areas' };
   }
 
   return { data: service, error: null };
@@ -5073,10 +5894,22 @@ export async function updateInstructorService(serviceId, payload) {
 
   // Handle Certificate Upload on Edit
   if (payload.certFile) {
-    const uploadResult = await uploadFile('certificates', payload.certFile);
+    const uploadResult = await uploadFile('posts', payload.certFile, `service-certificates/${Date.now()}-${Math.random().toString(36).slice(2)}-${payload.certFile.name || 'certificate.jpg'}`);
+    if (uploadResult.error) return { error: uploadResult.error, tableName: 'storage.objects' };
     if (!uploadResult.error) {
       updatePayload.raw_cert_url = uploadResult.data;
     }
+  }
+
+  const existingActivityImageUrls = Array.isArray(payload.existingActivityImageUrls) ? payload.existingActivityImageUrls.filter(Boolean) : [];
+  const activityImageUploadResult = await uploadServiceActivityImages(payload.activityImageFiles || []);
+  if (activityImageUploadResult.error) return { error: activityImageUploadResult.error, tableName: 'storage.objects' };
+  const nextActivityImageUrls = [
+    ...existingActivityImageUrls,
+    ...activityImageUploadResult.data,
+  ];
+  if (payload.activityImageFiles !== undefined || payload.existingActivityImageUrls !== undefined) {
+    updatePayload.activity_image_urls = nextActivityImageUrls;
   }
 
   // Handle Custom Qualification on Edit
@@ -5098,7 +5931,8 @@ export async function updateInstructorService(serviceId, payload) {
   }
 
   if (payload.pricing) {
-    await deleteTable("instructor_pricing", { service_id: `eq.${serviceId}` }, session);
+    const deletePricingResult = await deleteTable("instructor_pricing", { service_id: `eq.${serviceId}` }, session);
+    if (deletePricingResult.error) return { error: deletePricingResult.error, tableName: 'instructor_pricing' };
     if (payload.pricing.length > 0) {
       const pricingPayloads = payload.pricing.map(p => ({
         service_id: serviceId,
@@ -5107,22 +5941,32 @@ export async function updateInstructorService(serviceId, payload) {
         price_1_pax: Number(p.price1) || null,
         extra_person_fee: Number(p.extraPersonFee) || 0,
       }));
-      await insertTable("instructor_pricing", pricingPayloads, session, "return=minimal");
+      const pricingResult = await insertTable("instructor_pricing", pricingPayloads, session, "return=minimal");
+      if (pricingResult.error) return { error: pricingResult.error, tableName: 'instructor_pricing' };
     }
   }
 
   if (payload.locationIds) {
-    await deleteTable("service_coverage_areas", { service_id: `eq.${serviceId}` }, session);
+    const deleteLocationResult = await deleteTable("service_coverage_areas", { service_id: `eq.${serviceId}` }, session);
+    if (deleteLocationResult.error) return { error: deleteLocationResult.error, tableName: 'service_coverage_areas' };
     if (payload.locationIds.length > 0) {
       const locationPayloads = payload.locationIds.map(locId => ({
         service_id: serviceId,
         location_id: locId,
       }));
-      await insertTable("service_coverage_areas", locationPayloads, session, "return=minimal");
+      const locationResult = await insertTable("service_coverage_areas", locationPayloads, session, "return=minimal");
+      if (locationResult.error) return { error: locationResult.error, tableName: 'service_coverage_areas' };
     }
   }
 
   return { error: null };
+}
+
+async function uploadServiceActivityImages(files = []) {
+  const uploads = await Promise.all(Array.from(files || []).map((file) => uploadFile('posts', file, `service-activity-images/${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name || 'activity.jpg'}`)));
+  const failedUpload = uploads.find((result) => result.error);
+  if (failedUpload) return { data: [], error: failedUpload.error };
+  return { data: uploads.map((result) => result.data).filter(Boolean), error: null };
 }
 
 export async function updateInstructorBreakStatus(instructorId, isOnBreak) {

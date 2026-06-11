@@ -52,6 +52,13 @@ export default function Footer() {
               <Link to={`/${i18n.language}/become-guide`} className="transition hover:text-gnd-red">{t('nav.becomeGuide')}</Link>
             </nav>
           </div>
+          <div className="flex flex-col gap-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-red">Legal</p>
+            <nav className="flex flex-col gap-3 text-sm font-black text-gnd-dark">
+              <Link to={`/${i18n.language}/terms`} className="transition hover:text-gnd-red">{t('nav.terms')}</Link>
+              <Link to={`/${i18n.language}/privacy`} className="transition hover:text-gnd-red">{t('nav.privacy')}</Link>
+            </nav>
+          </div>
           {hasInstructorProfile && (
             <div className="flex flex-col gap-4">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gnd-red">{t('nav.instructor') || 'Instructor'}</p>

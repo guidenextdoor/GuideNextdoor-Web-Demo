@@ -1,13 +1,14 @@
 import { useState, useEffect, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Plus, Trash2, Loader2, Info, MapPin } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, MapPin } from 'lucide-react';
 import { fetchRefActivities, fetchRefQualifications, fetchLocations } from '../../lib/database';
 
 export default function ServiceModal({ isOpen, onClose, onSave, service, instructorId }) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [validationMessage, setValidationMessage] = useState('');
   
   const [activities, setActivities] = useState([]);
   const [qualifications, setQualifications] = useState([]);
@@ -18,6 +19,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
     qualificationId: '',
     customQualification: '',
     certFile: null,
+    activityImageFiles: [],
+    existingActivityImageUrls: [],
     attainmentYear: '',
     description: '',
     minDurationHours: 1,
@@ -53,6 +56,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
         qualificationId: service.qualificationId || '', // Assuming qualificationId is passed via service normalization
         customQualification: '',
         certFile: null,
+        activityImageFiles: [],
+        existingActivityImageUrls: service.activityImageUrls || [],
         attainmentYear: service.attainmentYear || '',
         description: service.description || '',
         minDurationHours: service.minDurationHours || 1,
@@ -63,6 +68,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
         qualificationId: '',
         customQualification: '',
         certFile: null,
+        activityImageFiles: [],
+        existingActivityImageUrls: [],
         attainmentYear: '',
         description: '',
         minDurationHours: 1,
@@ -71,6 +78,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
       };
 
       setFormData(initialData);
+      setValidationMessage('');
 
     }).catch(err => {
       console.error('Failed to load dependencies', err);
@@ -126,16 +134,44 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
     setShowQualResults(true);
   };
 
+  const stopScrollPropagation = (event) => {
+    event.stopPropagation();
+  };
+
   const handleFileChange = (e) => {
     if (e.target.files?.[0]) {
       setFormData(prev => ({ ...prev, certFile: e.target.files[0] }));
     }
   };
 
+  const handleActivityImagesChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setFormData(prev => ({
+      ...prev,
+      activityImageFiles: [...prev.activityImageFiles, ...files].slice(0, 8),
+    }));
+    e.target.value = '';
+  };
+
+  const handleRemoveNewActivityImage = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      activityImageFiles: prev.activityImageFiles.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleRemoveExistingActivityImage = (url) => {
+    setFormData(prev => ({
+      ...prev,
+      existingActivityImageUrls: prev.existingActivityImageUrls.filter((item) => item !== url),
+    }));
+  };
+
   const handleAddPricingTier = () => {
     setFormData(prev => ({
       ...prev,
-      pricing: [...prev.pricing, { skillLevel: 'New Level', currency: 'USD', price1: '', extraPersonFee: '' }]
+      pricing: [...prev.pricing, { skillLevel: 'All Levels', currency: 'USD', price1: '', extraPersonFee: '' }]
     }));
   };
 
@@ -156,37 +192,59 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
 
   const selectedLocationObjects = allLocations.filter(loc => formData.locationIds.includes(loc.id));
 
+  const scrollToField = (field) => {
+    window.requestAnimationFrame(() => {
+      const element = document.querySelector(`[data-field="${field}"]`);
+      element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const focusTarget = element?.querySelector('input, select, textarea, button');
+      focusTarget?.focus?.({ preventScroll: true });
+    });
+  };
+
+  const getFirstMissingField = () => {
+    if (!formData.activityId) return { field: 'activity', message: 'Complete Activity Category.' };
+    if (!formData.minDurationHours) return { field: 'duration', message: 'Complete Minimum Duration.' };
+    if (!hasActivityPhotos) return { field: 'activityPhotos', message: 'Upload at least one activity photo.' };
+    if (!formData.description.trim()) return { field: 'description', message: 'Complete Service Description.' };
+    if (!formData.qualificationId) return { field: 'qualification', message: 'Complete Qualification.' };
+    if (formData.qualificationId === 'custom' && !formData.customQualification.trim()) return { field: 'qualification', message: 'Complete Other qualification.' };
+    if (!formData.attainmentYear) return { field: 'attainmentYear', message: 'Complete Attainment Year.' };
+    if (!formData.certFile && !isEditing) return { field: 'certificate', message: 'Upload a certificate photo.' };
+    if (!formData.locationIds.length) return { field: 'location', message: 'Add at least one location.' };
+    const incompletePricingIndex = formData.pricing.findIndex((tier) => !tier.skillLevel || !tier.currency || !tier.price1 || tier.extraPersonFee === '');
+    if (!formData.pricing.length || incompletePricingIndex >= 0) return { field: 'pricing', message: 'Complete pricing details.' };
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.certFile && !isEditing) {
-      alert('Certificate photo is compulsory.');
+    const missing = getFirstMissingField();
+    if (missing) {
+      setValidationMessage(missing.message);
+      scrollToField(missing.field);
       return;
     }
-    if (formData.qualificationId === 'custom' && !formData.customQualification.trim()) {
-      alert('Please enter the qualification name.');
-      return;
-    }
+    setValidationMessage('');
     setSaving(true);
     try {
-      await onSave({
+      const result = await onSave({
         ...formData,
         instructorId,
       });
+      if (result?.error) {
+        setValidationMessage('We could not submit the service. Please check the details and try again.');
+        return;
+      }
       onClose();
     } catch (err) {
       console.error('Failed to save service', err);
+      setValidationMessage('We could not submit the service. Please check the details and try again.');
     } finally {
       setSaving(false);
     }
   };
 
-  const isValid = formData.activityId && 
-                  formData.qualificationId &&
-                  (formData.qualificationId !== 'custom' || formData.customQualification.trim()) &&
-                  formData.locationIds.length > 0 && 
-                  formData.pricing.length > 0 && 
-                  formData.pricing[0].price1 &&
-                  (isEditing || formData.certFile);
+  const hasActivityPhotos = formData.existingActivityImageUrls.length > 0 || formData.activityImageFiles.length > 0;
 
   return (
     <AnimatePresence>
@@ -236,11 +294,10 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                   <div className="space-y-4">
                     <h3 className="text-lg font-black text-gnd-dark border-b border-gnd-cream pb-2">1. Basic Details</h3>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-bold text-gnd-dark">Activity Category *</label>
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                      <div className="space-y-1.5" data-field="activity">
+                        <label className="text-sm font-bold text-gnd-dark">Activity Category</label>
                         <select
-                          required
                           value={formData.activityId}
                           onChange={(e) => {
                             setFormData(prev => ({ ...prev, activityId: e.target.value, qualificationId: '', customQualification: '' }));
@@ -259,8 +316,74 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                         </select>
                       </div>
 
-                      <div className="space-y-1.5 relative">
-                        <label className="text-sm font-bold text-gnd-dark">Qualification *</label>
+                      <div className="space-y-1.5" data-field="duration">
+                        <label className="text-sm font-bold text-gnd-dark">Minimum Duration (Hours)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="24"
+                          value={formData.minDurationHours}
+                          onChange={(e) => setFormData(prev => ({ ...prev, minDurationHours: Number(e.target.value) || 1 }))}
+                          className="w-full rounded-lg border border-gnd-cream bg-gnd-cream/30 p-3 text-sm focus:border-gnd-red focus:outline-none focus:ring-1 focus:ring-gnd-red"
+                          placeholder="e.g. 1"
+                        />
+                      </div>
+
+                      <div className="space-y-2" data-field="activityPhotos">
+                        <label className="text-sm font-bold text-gnd-dark">Activity Photos</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={handleActivityImagesChange}
+                          className="w-full rounded-lg border border-gnd-cream bg-white p-2 text-sm text-gnd-gray file:mr-4 file:rounded-md file:border-0 file:bg-gnd-red/10 file:px-4 file:py-2 file:text-sm file:font-bold file:text-gnd-red hover:file:bg-gnd-red/20"
+                        />
+                        {(formData.existingActivityImageUrls.length > 0 || formData.activityImageFiles.length > 0) && (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {formData.existingActivityImageUrls.map((url) => (
+                              <div key={url} className="relative overflow-hidden rounded-lg border border-gnd-cream bg-gnd-cream">
+                                <img src={url} alt="" className="aspect-[4/3] w-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveExistingActivityImage(url)}
+                                  className="absolute right-1.5 top-1.5 rounded-full bg-white/90 p-1 text-gnd-red shadow"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ))}
+                            {formData.activityImageFiles.map((file, index) => (
+                              <div key={`${file.name}-${index}`} className="relative rounded-lg border border-gnd-cream bg-gnd-cream p-3">
+                                <p className="line-clamp-2 pr-6 text-xs font-bold text-gnd-dark">{file.name}</p>
+                                <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-green-600">Ready</p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveNewActivityImage(index)}
+                                  className="absolute right-1.5 top-1.5 rounded-full bg-white p-1 text-gnd-red shadow"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5" data-field="description">
+                      <label className="text-sm font-bold text-gnd-dark">Service Description</label>
+                      <textarea
+                        rows={4}
+                        value={formData.description}
+                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                        className="w-full rounded-lg border border-gnd-cream bg-gnd-cream/30 p-3 text-sm focus:border-gnd-red focus:outline-none focus:ring-1 focus:ring-gnd-red"
+                        placeholder="Describe what learners can expect from this service..."
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                      <div className="space-y-1.5 relative" data-field="qualification">
+                        <label className="text-sm font-bold text-gnd-dark">Qualification</label>
                         <div className="relative group">
                           <input
                             type="text"
@@ -292,6 +415,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                                 initial={{ opacity: 0, y: -10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
+                                onWheel={stopScrollPropagation}
+                                onTouchMove={stopScrollPropagation}
                                 className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-gnd-cream bg-white shadow-2xl"
                               >
                                 {filteredQualifications.length > 0 ? (
@@ -336,7 +461,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                         {formData.qualificationId === 'custom' && (
                           <div className="mt-2 space-y-1.5 rounded-lg border border-gnd-red bg-red-50 p-3">
                             <div className="flex items-center justify-between gap-2">
-                              <label className="text-xs font-black uppercase tracking-widest text-gnd-red">Other qualification *</label>
+                              <label className="text-xs font-black uppercase tracking-widest text-gnd-red">Other qualification</label>
                               <button
                                 type="button"
                                 onClick={() => { setFormData(prev => ({ ...prev, qualificationId: '', customQualification: '' })); setQualSearch(''); }}
@@ -346,7 +471,6 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                               </button>
                             </div>
                             <input
-                              required
                               value={formData.customQualification}
                               onChange={(e) => {
                                 setFormData(prev => ({ ...prev, customQualification: e.target.value }));
@@ -358,25 +482,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                           </div>
                         )}
                       </div>
-                    </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-bold text-gnd-dark">Certificate Photo *</label>
-                      <input
-                        required={!isEditing}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFileChange}
-                        className="w-full rounded-lg border border-gnd-cream bg-white p-2 text-sm text-gnd-gray file:mr-4 file:rounded-md file:border-0 file:bg-gnd-red/10 file:px-4 file:py-2 file:text-sm file:font-bold file:text-gnd-red hover:file:bg-gnd-red/20"
-                      />
-                      {formData.certFile && (
-                        <p className="text-xs text-green-600 mt-1 font-bold flex items-center gap-1">✓ Ready to upload: {formData.certFile.name}</p>
-                      )}
-                      <p className="text-xs text-gnd-gray mt-1 flex items-center gap-1"><Info size={12}/> A valid certificate is required for all services on GuideNextdoor.</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5" data-field="attainmentYear">
                         <label className="text-sm font-bold text-gnd-dark">Attainment Year</label>
                         <input
                           type="number"
@@ -388,35 +495,25 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                           placeholder={`e.g. ${new Date().getFullYear() - 3}`}
                         />
                       </div>
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-bold text-gnd-dark">Minimum Duration (Hours)</label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="24"
-                          value={formData.minDurationHours}
-                          onChange={(e) => setFormData(prev => ({ ...prev, minDurationHours: Number(e.target.value) || 1 }))}
-                          className="w-full rounded-lg border border-gnd-cream bg-gnd-cream/30 p-3 text-sm focus:border-gnd-red focus:outline-none focus:ring-1 focus:ring-gnd-red"
-                          placeholder="e.g. 1"
-                        />
-                      </div>
-                    </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-bold text-gnd-dark">Service Description</label>
-                      <textarea
-                        rows={4}
-                        value={formData.description}
-                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                        className="w-full rounded-lg border border-gnd-cream bg-gnd-cream/30 p-3 text-sm focus:border-gnd-red focus:outline-none focus:ring-1 focus:ring-gnd-red"
-                        placeholder="Describe what learners can expect from this service..."
-                      />
+                      <div className="space-y-1.5" data-field="certificate">
+                        <label className="text-sm font-bold text-gnd-dark">Certificate Photo</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileChange}
+                          className="w-full rounded-lg border border-gnd-cream bg-white p-2 text-sm text-gnd-gray file:mr-4 file:rounded-md file:border-0 file:bg-gnd-red/10 file:px-4 file:py-2 file:text-sm file:font-bold file:text-gnd-red hover:file:bg-gnd-red/20"
+                        />
+                        {formData.certFile && (
+                          <p className="text-xs text-green-600 mt-1 font-bold flex items-center gap-1">✓ Ready to upload: {formData.certFile.name}</p>
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   {/* Locations */}
                   <div className="space-y-4">
-                    <h3 className="text-lg font-black text-gnd-dark border-b border-gnd-cream pb-2">2. Coverage Areas *</h3>
+                    <h3 className="text-lg font-black text-gnd-dark border-b border-gnd-cream pb-2">2. Location</h3>
                     
                     <div className="flex flex-wrap gap-2 mb-2">
                       {selectedLocationObjects.map(loc => (
@@ -434,7 +531,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                       ))}
                     </div>
 
-                    <div className="relative">
+                    <div className="relative" data-field="location">
                       <input
                         type="text"
                         value={locationSearch}
@@ -486,7 +583,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                   {/* Pricing Tiers */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between border-b border-gnd-cream pb-2">
-                      <h3 className="text-lg font-black text-gnd-dark">3. Pricing Tiers (Hourly Rate) *</h3>
+                      <h3 className="text-lg font-black text-gnd-dark">3. Pricing Tiers (Hourly Rate)</h3>
                       <button 
                         type="button" 
                         onClick={handleAddPricingTier}
@@ -496,7 +593,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                       </button>
                     </div>
 
-                    <div className="space-y-6">
+                    <div className="space-y-6" data-field="pricing">
                       {formData.pricing.map((tier, index) => (
                         <div key={index} className="relative rounded-xl border border-gnd-cream bg-gnd-cream/10 p-4 pt-6">
                           {formData.pricing.length > 1 && (
@@ -511,15 +608,17 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                           
                           <div className="grid grid-cols-2 gap-4 mb-4">
                             <div className="space-y-1.5">
-                              <label className="text-xs font-bold text-gnd-gray uppercase tracking-wider">Skill Level Label</label>
-                              <input
-                                required
-                                type="text"
+                              <label className="text-xs font-bold text-gnd-gray uppercase tracking-wider">Skill Level</label>
+                              <select
                                 value={tier.skillLevel}
                                 onChange={(e) => handlePricingChange(index, 'skillLevel', e.target.value)}
-                                className="w-full rounded-md border border-gnd-cream px-3 py-2 text-sm focus:border-gnd-red focus:outline-none"
-                                placeholder="e.g. Beginner"
-                              />
+                                className="w-full rounded-md border border-gnd-cream bg-white px-3 py-2 text-sm focus:border-gnd-red focus:outline-none"
+                              >
+                                <option value="All Levels">All Levels</option>
+                                <option value="Beginner">Beginner</option>
+                                <option value="Intermediate">Intermediate</option>
+                                <option value="Advanced">Advanced</option>
+                              </select>
                             </div>
                             <div className="space-y-1.5">
                               <label className="text-xs font-bold text-gnd-gray uppercase tracking-wider">Currency</label>
@@ -537,9 +636,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="space-y-1">
-                              <label className="text-xs text-gnd-gray">Base Price (1 Person) *</label>
+                              <label className="text-xs text-gnd-gray">Base Price (1 Person)</label>
                               <input
-                                required
                                 type="number"
                                 min="0"
                                 value={tier.price1}
@@ -549,9 +647,8 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                               />
                             </div>
                             <div className="space-y-1">
-                              <label className="text-xs text-gnd-gray">Additional Person Fee *</label>
+                              <label className="text-xs text-gnd-gray">Additional Person Fee</label>
                               <input
-                                required
                                 type="number"
                                 min="0"
                                 value={tier.extraPersonFee}
@@ -570,7 +667,9 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
               )}
             </div>
 
-            <div className="border-t border-gnd-cream p-6 flex justify-end gap-3 bg-white">
+            <div className="border-t border-gnd-cream p-6 flex flex-col gap-3 bg-white sm:flex-row sm:items-center sm:justify-between">
+              <p className="min-h-5 text-sm font-bold text-gnd-red">{validationMessage}</p>
+              <div className="flex justify-end gap-3">
               <button
                 type="button"
                 onClick={onClose}
@@ -582,7 +681,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
               <button
                 type="submit"
                 form="service-form"
-                disabled={saving || !isValid}
+                disabled={saving}
                 className="flex items-center gap-2 rounded-lg bg-gnd-dark px-8 py-3 text-sm font-black text-white transition-all hover:bg-gnd-red disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
               >
                 {saving ? (
@@ -591,6 +690,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                   isEditing ? 'Save Changes' : 'Create Service'
                 )}
               </button>
+              </div>
             </div>
           </motion.div>
         </Fragment>

@@ -29,6 +29,8 @@
     "staffPortal": "Staff portal",
     "becomeGuide": "Become a Coach",
     "login": "Log in",
+    "terms": "Terms of Service",
+    "privacy": "Privacy Policy",
     "language": "EN",
     "menu": "Menu",
     "navigation": "Navigation",
@@ -473,7 +475,8 @@
       "title": "Services",
       "subtitle": "Manage the coaching services learners can request from your public profile.",
       "addService": "Add service",
-      "confirmDelete": "Delete this service?"
+      "confirmDelete": "Delete this service?",
+      "saveFailed": "Could not submit this service for review."
     },
     "messages": {
       "eyebrow": "Inbox",
@@ -582,5 +585,30 @@
     "rights": "All rights reserved.",
     "databaseReady": "Service available",
     "databaseMissing": "Service unavailable"
+  },
+  "legal": {
+    "termsTitle": "Terms of Service",
+    "termsIntro": "Welcome to GuideNextdoor. By accessing or using our platform, you agree to be bound by these Terms of Service.",
+    "termsSections": {
+      "1": { "title": "1. Description of Service", "content": "GuideNextdoor provides an online marketplace and social platform connecting individuals seeking local coaching, guiding, or companion services ('Learners') with individuals offering such services ('Instructors'). We are not a party to the contracts between Learners and Instructors. While we may perform a basic preliminary check of an Instructor's certificate against their provided ID, this does not constitute a comprehensive background check or an endorsement of their professionalism. We do not provide a 100% guarantee on the skills, safety, or quality of any Instructor. Learners are strongly advised to perform their own due diligence and verification before booking any services." },
+      "2": { "title": "2. User Accounts and Acceptable Conduct", "content": "You must provide accurate information when registering and are responsible for safeguarding your account credentials. You agree to use the platform respectfully and safely. You must not use the platform for any illegal activities, harassment, discrimination, hate speech, or to post harmful, inappropriate, or sexually explicit content. All communications and interactions, both online and in-person, must maintain a high standard of professional and respectful conduct." },
+      "3": { "title": "3. Booking and Interactions", "content": "When a booking is confirmed, a direct agreement is formed between the Learner and the Instructor. Any payments, cancellations, or disputes must be handled according to the specific terms agreed upon by both parties. GuideNextdoor disclaims any liability arising from these interactions." },
+      "4": { "title": "4. Instructor Obligations", "content": "Instructors must accurately represent their qualifications, experience, and services. Instructors are solely responsible for compliance with any local laws, permits, or insurance requirements related to their services." },
+      "5": { "title": "5. Assumption of Risk and Limitation of Liability", "content": "Many services offered on GuideNextdoor involve sports, outdoor activities, or physical exertion, which carry inherent risks. You assume all such risks. To the maximum extent permitted by law, GuideNextdoor shall not be liable for any direct, indirect, incidental, or consequential damages, personal injury, or property damage arising out of your use of the platform or any services booked through it." },
+      "6": { "title": "6. Content and Intellectual Property", "content": "You retain ownership of the content you post. By posting, you grant GuideNextdoor a non-exclusive, worldwide, royalty-free license to use, display, and distribute your content in connection with operating the platform." },
+      "7": { "title": "7. Moderation, Suspension, and Termination", "content": "GuideNextdoor reserves the absolute right, at our sole discretion and without prior notice, to review, hide, or delete any posts, comments, or content that we deem inappropriate or in violation of these guidelines. Furthermore, we reserve the right to suspend, restrict, or permanently delete your account if we determine that your conduct, whether on the platform or during in-person services, violates these Terms or poses a risk to the safety and well-being of the GuideNextdoor community." },
+      "8": { "title": "8. Global Compliance and Jurisdiction", "content": "Because GuideNextdoor connects users from different countries around the world, you are solely responsible for ensuring that your use of the platform, and the provision or receipt of any services, strictly complies with all applicable local, state, national, and international laws in your jurisdiction. We make no representation that the platform or the services offered are appropriate or legally permissible in all locations." }
+    },
+    "privacyTitle": "Privacy Policy",
+    "privacyIntro": "Your privacy is important to GuideNextdoor. This Privacy Policy explains how we collect, use, and share your personal information.",
+    "privacySections": {
+      "1": { "title": "1. Information We Collect", "content": "We collect information you provide directly to us, such as your name, email, profile details, service descriptions, location data, and messages sent through the platform. For Instructors, we also collect identity verification information—including government-issued IDs, visual identification (e.g., a selfie), and professional certificates—to establish trust and comply with our safety standards." },
+      "2": { "title": "2. How We Use Your Information", "content": "We use your information to operate and improve the platform, match Learners with Instructors, facilitate communications, and provide customer support. Your government-issued IDs and professional certificates are used exclusively for account verification, fraud prevention, safety monitoring, and enforcing our Terms." },
+      "3": { "title": "3. Sharing of Information", "content": "We share your public profile and necessary contact information with other users to facilitate bookings. We strictly DO NOT share your government-issued IDs or private certificates with other platform users. We may share your verification data with trusted third-party service providers solely for the purpose of validating your identity. We may also disclose information to law enforcement or regulators if required by law. We never sell your personal data." },
+      "4": { "title": "4. Data Security and Retention", "content": "We implement robust security measures to protect your personal information, particularly sensitive verification documents, from unauthorized access or disclosure. Identity documents are stored securely and retained only for as long as necessary to maintain the integrity of your account, resolve disputes, or as required by law." },
+      "5": { "title": "5. Your Data Rights", "content": "You have the right to access, update, or delete your personal information. You can manage most of this directly through your account settings or by contacting our support team." },
+      "6": { "title": "6. Cookies and Tracking", "content": "We use cookies and similar technologies to track user activity, remember your preferences, and analyze platform usage to improve our services." },
+      "7": { "title": "7. Changes to this Policy", "content": "We may update this Privacy Policy from time to time. We will notify you of any material changes by posting the new policy on the platform." }
+    }
   }
 }

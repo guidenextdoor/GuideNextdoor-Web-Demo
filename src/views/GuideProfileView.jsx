@@ -36,6 +36,7 @@ export default function GuideProfileView() {
   const { t, i18n } = useTranslation();
   const [state, setState] = useState({ loading: true, coach: null, error: null });
   const requestedTab = searchParams.get('tab');
+  const requestedServiceId = searchParams.get('service');
   const [activeTab, setActiveTab] = useState(tabs.includes(requestedTab) ? requestedTab : 'posts');
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [selectedCert, setSelectedCert] = useState(null);
@@ -86,6 +87,22 @@ export default function GuideProfileView() {
       setShouldScrollToSessions(false);
     });
   }, [activeTab, shouldScrollToSessions]);
+
+  useEffect(() => {
+    if (state.loading || !state.coach || requestedTab !== 'sessions' || !requestedServiceId) return;
+    const service = state.coach.services.find((item) => item.id === requestedServiceId);
+    if (!service) return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      setActiveTab('sessions');
+      setShouldScrollToSessions(true);
+      setBookingServiceId(service.id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedServiceId, requestedTab, state.coach, state.loading]);
 
   if (state.loading) {
     return <div className="mx-auto max-w-7xl px-5 py-20 text-gnd-gray md:px-8">{t('states.loadingDatabase')}</div>;
@@ -507,7 +524,6 @@ function ProfilePostModal({ post, coach, onClose, onLike, onSave, onViewSessions
 }
 
 function CredentialsTab({ coach, t, onViewCert }) {
-  // Group qualifications by activity
   const grouped = (coach.qualifications || []).reduce((acc, qual) => {
     const activityKey = qual.activityKey || qual.title;
     if (!acc[activityKey]) {
@@ -524,43 +540,58 @@ function CredentialsTab({ coach, t, onViewCert }) {
   const groups = Object.values(grouped).sort((a, b) => a.title.localeCompare(b.title));
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      {groups.length ? groups.map((group) => (
-        <section key={group.title} className="rounded-2xl bg-white p-5 shadow-lg shadow-red-900/5 sm:p-8">
-          <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gnd-cream text-gnd-red">
-              <Award size={22} />
-            </div>
-            <h2 className="text-xl font-black">{group.title}</h2>
-          </div>
-          <div className="mt-6 grid gap-4">
-            {group.items.sort((a, b) => (a.attainmentYear || 0) - (b.attainmentYear || 0)).map((qual) => (
-              <button
-                key={qual.id}
-                type="button"
-                className="group relative w-full rounded-2xl border border-gnd-cream p-5 text-left transition hover:border-gnd-red/20 hover:bg-gnd-cream/5"
-                onClick={() => onViewCert(qual)}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-black text-gnd-dark group-hover:text-gnd-red transition-colors">{qual.qualification || t('profile.credentials.noQualification')}</p>
-                    <div className="mt-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-gnd-red">
-                      <ImageIcon size={12} />
-                      {t('profile.viewCertificate')}
-                    </div>
+    <div className="w-full">
+      {groups.length ? (
+        <div className="overflow-hidden rounded-2xl bg-white shadow-lg shadow-red-900/5">
+          {groups.map((group) => {
+            const sortedItems = [...group.items].sort((a, b) => (b.attainmentYear || 0) - (a.attainmentYear || 0));
+            return (
+              <section key={group.title} className="grid gap-0 border-b border-gnd-cream last:border-b-0 md:grid-cols-[220px_minmax(0,1fr)]">
+                <div className="flex items-center gap-3 bg-gnd-cream/40 px-4 py-4 md:items-start md:px-5 md:py-5">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white text-gnd-red shadow-sm shadow-red-900/5">
+                    <Award size={19} />
                   </div>
-                  {qual.attainmentYear && (
-                    <span className="shrink-0 rounded-full bg-gnd-cream px-3 py-1 text-xs font-black text-gnd-red">
-                      {qual.attainmentYear}
-                    </span>
-                  )}
+                  <div className="min-w-0">
+                    <h2 className="truncate text-base font-black text-gnd-dark md:whitespace-normal">{group.title}</h2>
+                    <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-gnd-gray">
+                      {sortedItems.length} {sortedItems.length === 1 ? 'credential' : 'credentials'}
+                    </p>
+                  </div>
                 </div>
-              </button>
-            ))}
-          </div>
-        </section>
-      )) : (
-        <section className="rounded-2xl bg-white p-5 shadow-lg shadow-red-900/5 sm:p-8 text-center">
+
+                <div className="divide-y divide-gnd-cream">
+                  {sortedItems.map((qual) => (
+                    <button
+                      key={qual.id}
+                      type="button"
+                      className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-4 text-left transition hover:bg-gnd-cream/30 sm:grid-cols-[92px_minmax(0,1fr)_auto] sm:px-5"
+                      onClick={() => onViewCert(qual)}
+                    >
+                      <span className="hidden rounded-md bg-gnd-cream px-3 py-2 text-center text-xs font-black text-gnd-red sm:block">
+                        {qual.attainmentYear || 'Verified'}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-black leading-5 text-gnd-dark group-hover:text-gnd-red">
+                          {qual.qualification || t('profile.credentials.noQualification')}
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gnd-gray">
+                          <span className="sm:hidden">{qual.attainmentYear || 'Verified'}</span>
+                          <span className="inline-flex items-center gap-1 text-gnd-red">
+                            <ImageIcon size={12} />
+                            {t('profile.viewCertificate')}
+                          </span>
+                        </span>
+                      </span>
+                      <ChevronRight size={18} className="text-gnd-gray transition group-hover:translate-x-0.5 group-hover:text-gnd-red" />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <section className="rounded-2xl bg-white p-5 text-center shadow-lg shadow-red-900/5 sm:p-8">
           <p className="text-sm text-gnd-gray">{t('profile.empty.credentialsBody')}</p>
         </section>
       )}
@@ -570,28 +601,29 @@ function CredentialsTab({ coach, t, onViewCert }) {
 
 function CertificateModal({ cert, onClose }) {
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center bg-gnd-dark/90 p-4 backdrop-blur-sm md:p-8">
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-gnd-dark/90 p-3 backdrop-blur-sm sm:p-5 md:p-8">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="relative flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
+        className="relative flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
       >
-        <header className="flex items-center justify-between border-b border-gnd-cream px-6 py-4">
-          <div>
-            <h2 className="text-lg font-black leading-tight text-gnd-dark">{cert.qualification}</h2>
-            <p className="text-xs font-bold text-gnd-gray">{cert.title} • {cert.attainmentYear}</p>
+        <header className="flex items-start justify-between gap-4 border-b border-gnd-cream px-4 py-4 sm:px-6">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-gnd-red">{cert.title}</p>
+            <h2 className="mt-1 text-base font-black leading-tight text-gnd-dark sm:text-lg">{cert.qualification}</h2>
+            {cert.attainmentYear && <p className="mt-1 text-xs font-bold text-gnd-gray">Attained in {cert.attainmentYear}</p>}
           </div>
           <button
             type="button"
-            className="grid h-10 w-10 place-items-center rounded-full bg-gnd-cream text-gnd-dark transition hover:bg-gnd-red hover:text-white"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-gnd-cream text-gnd-dark transition hover:bg-gnd-red hover:text-white"
             onClick={onClose}
           >
             <X size={20} />
           </button>
         </header>
         
-        <div className="flex-1 overflow-auto bg-gnd-cream/50 p-2 sm:p-6 md:p-10">
-          <div className="mx-auto max-w-3xl overflow-hidden rounded-xl bg-white shadow-lg">
+        <div className="flex-1 overflow-auto bg-gnd-cream/50 p-2 sm:p-5 md:p-8">
+          <div className="mx-auto max-w-4xl overflow-hidden rounded-lg bg-white shadow-lg shadow-red-900/5">
             <img
               src={cert.certificateUrl || 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?auto=format&fit=crop&q=80&w=1200'}
               alt={cert.qualification}
@@ -620,14 +652,7 @@ function SessionsTab({ coach, t, onRequestSession }) {
           <div className="flex flex-1 flex-col p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {service.qualification && (
-                    <span className="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-600 border border-blue-100">
-                      {t('profile.tabs.credentials')}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2">
                   <h2 className="text-lg font-black tracking-tight text-gnd-dark group-hover:text-gnd-red transition-colors truncate">{service.title}</h2>
                   {service.locations.length > 0 && (
                     <div className="flex items-center gap-1 shrink-0 text-[10px] font-black text-gnd-gray/60 uppercase tracking-widest bg-gnd-cream/30 px-2 py-0.5 rounded-md">

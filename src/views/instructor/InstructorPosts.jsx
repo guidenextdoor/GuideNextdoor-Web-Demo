@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Image as ImageIcon, Inbox, PlusSquare, MapPin, Heart, MessageCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { fetchInstructorSchedule, togglePostLike, toggleSavedPost } from '../../lib/database';
+import { fetchInstructorSchedule, getCachedInstructorSchedule, togglePostLike, toggleSavedPost } from '../../lib/database';
 import { buildLoginRedirectPath } from '../../lib/navigation';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
 import AuthActionNotice from '../../components/AuthActionNotice';
@@ -12,7 +12,12 @@ import PostDetailModal from '../../components/PostDetailModal';
 export default function InstructorPosts() {
   const { t, i18n } = useTranslation();
   const location = useLocation();
-  const [state, setState] = useState({ loading: true, data: null, error: null });
+  const cachedSchedule = getCachedInstructorSchedule();
+  const [state, setState] = useState({
+    loading: !cachedSchedule?.data,
+    data: cachedSchedule?.data || null,
+    error: cachedSchedule?.error || null,
+  });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [notice, setNotice] = useState(null);

@@ -12,8 +12,8 @@ export default function InstructorDashboardTabs() {
   const { t, i18n } = useTranslation();
   const basePath = `/${i18n.language}/instructor`;
   const navItems = [
-    { to: '', icon: LayoutDashboard, label: t('workspace.overview.title'), end: true },
-    { to: 'profile', icon: UserCircle, label: t('profile.aboutTitle') },
+    { to: '', icon: UserCircle, label: t('profile.aboutTitle'), end: true },
+    { to: 'overview', icon: LayoutDashboard, label: t('workspace.overview.title') },
     { to: 'posts', icon: ImageIcon, label: t('profile.tabs.posts') },
     { to: 'messages', icon: MessageSquare, label: t('workspace.messages.title') },
     { to: 'schedule', icon: CalendarClock, label: t('workspace.schedule.title') },

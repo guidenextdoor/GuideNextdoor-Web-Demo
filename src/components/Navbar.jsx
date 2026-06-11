@@ -80,7 +80,7 @@ export default function Navbar() {
 
   const visibleNavItems = [
     ...publicNavItems,
-    ...(session ? [profileNavItem] : []),
+    ...(session && !hasInstructorProfile ? [profileNavItem] : []),
     ...(isStaff ? [staffNavItem] : []),
     ...(hasInstructorProfile ? [instructorNavItem] : []),
   ];

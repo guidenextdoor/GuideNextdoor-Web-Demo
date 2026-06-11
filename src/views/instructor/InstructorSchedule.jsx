@@ -10,6 +10,7 @@ import {
   deleteInstructorAvailabilityWindow, 
   deleteInstructorService,
   fetchInstructorSchedule,
+  getCachedInstructorSchedule,
   updateInstructorAvailabilityWindow,
   updateInstructorService,
   updateInstructorBreakStatus
@@ -34,9 +35,35 @@ const windowPresets = [
   { label: 'Evening', startTime: '18:00', endTime: '20:00' },
 ];
 
+const getServiceStatusMeta = (status) => {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'approved') {
+    return {
+      label: 'Approved',
+      className: 'border-green-100 bg-green-50 text-green-600',
+    };
+  }
+  if (normalized === 'rejected') {
+    return {
+      label: 'Rejected',
+      className: 'border-red-100 bg-red-50 text-gnd-red',
+    };
+  }
+  return {
+    label: 'Submitted',
+    className: 'border-amber-100 bg-amber-50 text-amber-700',
+  };
+};
+
 export default function InstructorSchedule() {
   const { t, i18n } = useTranslation();
-  const [state, setState] = useState({ loading: true, data: null, error: null, tableName: '' });
+  const cachedSchedule = getCachedInstructorSchedule();
+  const [state, setState] = useState({
+    loading: !cachedSchedule?.data,
+    data: cachedSchedule?.data || null,
+    error: cachedSchedule?.error || null,
+    tableName: cachedSchedule?.tableName || '',
+  });
   const [visibleMonth, setVisibleMonth] = useState(getMonthStart(new Date()));
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
@@ -48,6 +75,7 @@ export default function InstructorSchedule() {
   const [sessionFilter, setSessionFilter] = useState('All');
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [editingService, setEditingService] = useState(null);
+  const [serviceFeedback, setServiceFeedback] = useState({ error: '', notice: '' });
   const [form, setForm] = useState({ dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
   const [status, setStatus] = useState({ saving: false, error: '', notice: '' });
   const monthPickerRef = useRef(null);
@@ -216,11 +244,13 @@ export default function InstructorSchedule() {
 
   const handleOpenAddService = () => {
     setEditingService(null);
+    setServiceFeedback({ error: '', notice: '' });
     setServiceModalOpen(true);
   };
 
   const handleOpenEditService = (service) => {
     setEditingService(service);
+    setServiceFeedback({ error: '', notice: '' });
     setServiceModalOpen(true);
   };
 
@@ -231,14 +261,32 @@ export default function InstructorSchedule() {
   };
 
   const handleSaveService = async (formData) => {
+    setServiceFeedback({ error: '', notice: '' });
+    let result;
     if (editingService) {
-      await updateInstructorService(editingService.id, formData);
+      result = await updateInstructorService(editingService.id, formData);
     } else {
-      await createInstructorService(formData);
+      result = await createInstructorService(formData);
     }
+
+    if (result?.error) {
+      setServiceFeedback({
+        error: result.error === 'auth_required' ? t('workspace.schedule.loginRequired') : t('workspace.services.saveFailed'),
+        notice: '',
+      });
+      return result;
+    }
+
     setServiceModalOpen(false);
     setEditingService(null);
+    setServiceFeedback({
+      error: '',
+      notice: editingService
+        ? 'Service changes submitted. GuideNextdoor staff will review the updated details before the service is shown publicly.'
+        : 'Service application submitted. GuideNextdoor staff will review it before it is shown publicly.',
+    });
     loadSchedule();
+    return result;
   };
 
   const handleSaveDayAvailability = async (date, hourBlocks) => {
@@ -415,6 +463,7 @@ export default function InstructorSchedule() {
               onAdd={handleOpenAddService}
               onEdit={handleOpenEditService}
               onDelete={handleDeleteService}
+              feedback={serviceFeedback}
               t={t}
             />
 
@@ -945,7 +994,7 @@ function WeeklyWindowsPanel({
   );
 }
 
-function ServiceCardsPanel({ services, onAdd, onEdit, onDelete, t }) {
+function ServiceCardsPanel({ services, onAdd, onEdit, onDelete, feedback, t }) {
   return (
     <section className="rounded-lg border border-gnd-cream bg-white p-4 shadow-sm sm:p-5">
       <div className="flex items-start justify-between gap-3">
@@ -958,14 +1007,25 @@ function ServiceCardsPanel({ services, onAdd, onEdit, onDelete, t }) {
         </button>
       </div>
 
+      {feedback?.error && (
+        <p className="mt-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-gnd-red">
+          {feedback.error}
+        </p>
+      )}
+      {feedback?.notice && (
+        <p className="mt-4 rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs font-bold leading-5 text-green-700">
+          {feedback.notice}
+        </p>
+      )}
+
       <div className="mt-4 space-y-3">
         {services.length ? services.slice(0, 4).map((service) => (
           <article key={service.id} className="rounded-lg border border-gnd-cream bg-gnd-cream/10 p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  <span className="rounded-md border border-green-100 bg-green-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-green-600">
-                    {service.status === 'approved' ? t('explore.verified') : service.status}
+                  <span className={`rounded-md border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${getServiceStatusMeta(service.status).className}`}>
+                    {getServiceStatusMeta(service.status).label}
                   </span>
                   {service.qualification && (
                     <span className="rounded-md border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-600">

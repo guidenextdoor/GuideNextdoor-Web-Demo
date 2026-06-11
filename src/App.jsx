@@ -14,6 +14,8 @@ import BecomeGuideView from './views/BecomeGuideView';
 import LoginView from './views/LoginView';
 import MessagesView from './views/MessagesView';
 import AccountProfileView from './views/AccountProfileView';
+import TermsView from './views/TermsView';
+import PrivacyView from './views/PrivacyView';
 import DashboardView from './views/instructor/DashboardView';
 import InstructorOverview from './views/instructor/InstructorOverview';
 import InstructorMessages from './views/instructor/InstructorMessages';
@@ -55,7 +57,7 @@ function LanguageWrapper() {
         <main className="flex-1">
           <Suspense fallback={<div className="grid min-h-[60vh] place-items-center">{t('states.loading')}</div>}>
             <AnimatePresence mode="wait">
-              <Routes location={location} key={location.pathname}>
+              <Routes location={location}>
                 <Route path="/" element={<HomeView />} />
                 <Route path="/explore" element={<ExploreView />} />
                 <Route path="/sessions" element={<SearchView />} />
@@ -63,6 +65,8 @@ function LanguageWrapper() {
                 <Route path="/destinations" element={<DestinationsView />} />
                 <Route path="/guide/:id" element={<GuideProfileView />} />
                 <Route path="/become-guide" element={<BecomeGuideView />} />
+                <Route path="/terms" element={<TermsView />} />
+                <Route path="/privacy" element={<PrivacyView />} />
                 <Route path="/login" element={<LoginView />} />
                 <Route path="/profile" element={<AccountProfileView />} />
                 <Route path="/messages" element={<MessagesView />} />
@@ -71,13 +75,14 @@ function LanguageWrapper() {
                 
                 {/* Instructor Dashboard */}
                 <Route path="/instructor" element={<DashboardView />}>
-                  <Route index element={<InstructorOverview />} />
+                  <Route index element={<InstructorAbout />} />
                   <Route path="bookings" element={<Navigate to={`/${lang}/instructor/schedule`} replace />} />
                   <Route path="messages" element={<InstructorMessages />} />
+                  <Route path="overview" element={<InstructorOverview />} />
                   <Route path="services" element={<Navigate to={`/${lang}/instructor/schedule`} replace />} />
                   <Route path="schedule" element={<InstructorSchedule />} />
                   <Route path="posts" element={<InstructorPosts />} />
-                  <Route path="profile" element={<InstructorAbout />} />
+                  <Route path="profile" element={<Navigate to={`/${lang}/instructor`} replace />} />
                 </Route>
               </Routes>
             </AnimatePresence>

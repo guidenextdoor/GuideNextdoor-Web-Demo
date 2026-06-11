@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, Inbox, Clock, MapPin, Users, ChevronRight } from 'lucide-react';
+import { CalendarDays, Inbox, Clock, Users } from 'lucide-react';
 import { fetchInstructorSchedule } from '../../lib/database';
 import InstructorDashboardLayout from './InstructorDashboardLayout';
 import BookingDetailModal from '../../components/BookingDetailModal';

@@ -6,18 +6,15 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Plus, 
-  Check, 
   Loader2,
-  Trash2,
   Tag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { compressImage } from '../lib/image-utils';
 import { uploadPostMedia, createPost, fetchLocations, fetchInstructorSchedule } from '../lib/database';
 
-export default function CreatePostModal({ onClose, onPostCreated, t }) {
+export default function CreatePostModal({ onClose, onPostCreated }) {
   const [step, setStep] = useState(1); // 1: Select, 2: Preview & Details
-  const [files, setFiles] = useState([]); // Original files
   const [previews, setPreviews] = useState([]); // Compressed preview URLs
   const [compressedFiles, setCompressedFiles] = useState([]); // Files to upload
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -29,7 +26,6 @@ export default function CreatePostModal({ onClose, onPostCreated, t }) {
   const [selectedService, setSelectedService] = useState(null);
   const [serviceSearch, setServiceSearch] = useState('');
   const [showServiceResults, setShowServiceResults] = useState(false);
-  const [hashtags, setHashtags] = useState([]);
   
   const [loading, setLoading] = useState(false);
   const [locations, setLocations] = useState([]);
@@ -62,7 +58,6 @@ export default function CreatePostModal({ onClose, onPostCreated, t }) {
       
       const previewUrls = compressed.map(file => URL.createObjectURL(file));
       
-      setFiles(selectedFiles);
       setCompressedFiles(compressed);
       setPreviews(previewUrls);
       setStep(2);
