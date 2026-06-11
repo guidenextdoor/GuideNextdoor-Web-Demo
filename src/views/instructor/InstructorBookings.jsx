@@ -178,8 +178,6 @@ function BookingCard({ booking, t, onClick }) {
 
 function formatMoney(value, currency = 'USD') {
   const formatted = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency,
     maximumFractionDigits: 0,
   }).format(Number(value) || 0);
   return `${currency} ${formatted}`;

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Flag, Heart, MessageCircle, MessageSquare, Bookmark, MapPin, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Heart, MessageCircle, MessageSquare, Bookmark, MapPin, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchPostComments, createPostComment } from '../lib/database';
+import MoreActionsMenu from './MoreActionsMenu';
 
 const fallbackImages = [
   'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1000&q=80',
@@ -113,9 +114,10 @@ export default function PostDetailModal({ post, onClose, onLike, onSave, onRepor
               </div>
             </Link>
             <div className="flex items-center gap-1">
-              <button type="button" className="rounded-full bg-gnd-cream p-1 md:p-1.5 transition hover:bg-gnd-red hover:text-white" onClick={() => onReport?.(buildPostReportTarget(post))} aria-label="Report post">
-                <Flag size={14} className="md:w-[18px] md:h-[18px]" />
-              </button>
+              <MoreActionsMenu
+                buttonClassName="h-7 w-7 bg-gnd-cream md:h-9 md:w-9"
+                actions={[{ key: 'report', label: 'Report', onClick: () => onReport?.(buildPostReportTarget(post)) }]}
+              />
               <button type="button" className="rounded-full bg-gnd-cream p-1 md:p-1.5 transition hover:bg-gnd-red hover:text-white" onClick={onClose} aria-label={t('explore.closePost')}>
                 <X size={14} className="md:w-[18px] md:h-[18px]" />
               </button>
@@ -167,7 +169,11 @@ export default function PostDetailModal({ post, onClose, onLike, onSave, onRepor
                       </p>
                       <div className="mt-1 flex items-center gap-2">
                         <p className="text-[8px] md:text-[10px] font-bold text-gnd-gray uppercase tracking-wider">{comment.displayDate}</p>
-                        <button type="button" onClick={() => onReport?.(buildCommentReportTarget(comment, post))} className="text-[8px] font-black uppercase tracking-widest text-gnd-gray hover:text-gnd-red">Report</button>
+                        <MoreActionsMenu
+                          buttonClassName="h-6 w-6"
+                          menuClassName="min-w-28"
+                          actions={[{ key: 'report', label: 'Report', onClick: () => onReport?.(buildCommentReportTarget(comment, post)) }]}
+                        />
                       </div>
                     </div>
                   </div>

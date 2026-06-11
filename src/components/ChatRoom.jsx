@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Ban, CalendarDays, CheckCircle2, Clock, Flag, Headphones, Inbox, MessageSquare, Pencil, Save, Send, Users, X } from 'lucide-react';
+import { Ban, CalendarDays, CheckCircle2, Clock, Headphones, Inbox, MessageSquare, Pencil, Save, Send, Users, X } from 'lucide-react';
 import {
   ensureDirectConversationWithUser,
   fetchConversationMessages,
@@ -10,6 +10,7 @@ import {
   updateBookingRequest,
 } from '../lib/database';
 import ReportModal from './ReportModal';
+import MoreActionsMenu from './MoreActionsMenu';
 
 const BOOKING_STATUS = {
   pending: 'Pending',
@@ -498,10 +499,10 @@ function ChatHeader({ conversation, onReport }) {
             <h2 className="truncate text-lg font-black text-gnd-dark">{conversation.otherPartyName}</h2>
           </div>
         </div>
-        <button type="button" onClick={onReport} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-gnd-cream px-3 py-2 text-xs font-black text-gnd-dark hover:text-gnd-red">
-          <Flag size={14} />
-          Report
-        </button>
+        <MoreActionsMenu
+          buttonClassName="h-9 w-9 rounded-lg bg-gnd-cream"
+          actions={[{ key: 'report', label: 'Report', onClick: onReport }]}
+        />
       </div>   
     </header>
   );

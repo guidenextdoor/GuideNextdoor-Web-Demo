@@ -482,7 +482,7 @@ export default function StaffDashboardView() {
       setReviewState({ saving: false, error: result.error, notice: '' });
       return;
     }
-    setReviewState({ saving: false, error: '', notice: 'Message sent as GuideNextdoor Support.' });
+    setReviewState({ saving: false, error: '', notice: 'Message sent as GuideNextdoor Customer Service.' });
     await reloadComplaints();
   };
 
@@ -1625,7 +1625,7 @@ function ComplaintDetail({ complaint, saving, onDecision, onClaim, onTargetActio
 
       <section className="mt-5 rounded-lg border border-gnd-cream bg-white p-4">
         <h3 className="text-sm font-black text-gnd-dark">Support messages</h3>
-        <p className="mt-1 text-xs font-bold leading-5 text-gnd-gray">Messages are shown to users as GuideNextdoor Support. Staff identity is retained in the audit trail.</p>
+        <p className="mt-1 text-xs font-bold leading-5 text-gnd-gray">Messages are shown to users as GuideNextdoor Customer Service. Staff identity is retained in the audit trail.</p>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="grid gap-2">
             <span className="text-xs font-black uppercase tracking-widest text-gnd-gray">Message reporter</span>
@@ -1789,10 +1789,11 @@ function PostModerationBadge({ post, compact = false }) {
 }
 
 function defaultPostAuthorMessage(post) {
+  const name = post.coachName || 'there';
   if (isRemovedPost(post)) {
-    return `Hi, GuideNextdoor Support is reviewing your post "${post.title}". We will follow up here if any further action is needed.`;
+    return `Hi ${name}, GuideNextdoor Customer Service is reviewing your post "${post.title}". We will follow up here if any further action is needed.`;
   }
-  return `Hi, GuideNextdoor Support removed your post "${post.title}" after review. You can reply here if you need clarification.`;
+  return `Hi ${name}, GuideNextdoor Customer Service removed your post "${post.title}" after review. You can reply here if you need clarification.`;
 }
 
 function filterApplicationsByQueue(applications, queueFilter) {

@@ -41,7 +41,6 @@
   "states": {
     "loading": "Loading",
     "saving": "Saving",
-    "loadingDatabase": "Loading profile.",
     "schemaPending": "Content temporarily unavailable",
     "schemaPendingShort": "This content could not be loaded right now.",
     "schemaPendingBody": "We could not load this section. Please try again later."

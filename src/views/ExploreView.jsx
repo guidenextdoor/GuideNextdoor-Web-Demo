@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { Bookmark, Flag, Heart, MapPin, MessageCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bookmark, Heart, MapPin, MessageCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchPosts, togglePostLike, toggleSavedPost } from '../lib/database';
@@ -141,7 +141,6 @@ export default function ExploreView() {
             onOpen={() => setSelectedPostId(post.id)}
             onLike={() => handleLike(post)}
             onSave={() => handleSave(post)}
-            onReport={() => setReportTarget(buildPostReportTarget(post))}
             profilePath={`/${i18n.language}/guide/${post.authorUsername || post.instructorId}`}
           />
         ))}
@@ -175,7 +174,7 @@ export default function ExploreView() {
   );
 }
 
-function PostCard({ post, index, onOpen, onLike, onSave, onReport, profilePath }) {
+function PostCard({ post, index, onOpen, onLike, onSave, profilePath }) {
   const imageUrls = post.imageUrls?.length > 0 ? post.imageUrls : [post.imageUrl || fallbackImages[index % fallbackImages.length]];
   const [imgIndex, setImgIndex] = useState(0);
 
@@ -234,9 +233,6 @@ function PostCard({ post, index, onOpen, onLike, onSave, onReport, profilePath }
             </span>
             <button type="button" className={`transition hover:text-gnd-red ${post.saved ? 'text-gnd-red' : ''}`} onClick={onSave} aria-label="save post">
               <Bookmark size={14} className={post.saved ? 'fill-current' : ''} />
-            </button>
-            <button type="button" className="transition hover:text-gnd-red" onClick={onReport} aria-label="report post">
-              <Flag size={14} />
             </button>
           </div>
         </div>

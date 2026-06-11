@@ -21,6 +21,8 @@ const ACTIVE_BOOKING_STATUSES_FOR_VALIDATION = new Set([
 
 const COMPLETION_PROMPT_MESSAGE_TYPE = 'booking_completion_prompt';
 const AUTO_COMPLETED_MESSAGE_TYPE = 'booking_auto_completed';
+const PUBLIC_SUPPORT_NAME = 'GuideNextdoor Customer Service';
+const PUBLIC_SUPPORT_AVATAR_URL = '/favicon.svg';
 const STAFF_USER_IDS = splitEnvList(import.meta.env.VITE_STAFF_USER_IDS || import.meta.env.VITE_GUIDENEXTDOOR_STAFF_USER_ID);
 const STAFF_EMAILS = splitEnvList(import.meta.env.VITE_STAFF_EMAILS);
 const CENTRAL_STAFF_USER_ID = (import.meta.env.VITE_GUIDENEXTDOOR_STAFF_USER_ID || STAFF_USER_IDS[0] || '').trim();
@@ -2743,7 +2745,12 @@ export async function liftUserBlock(blockId) {
 async function sendSuspensionNotice({ block, userId, status, blockedUntil, reasonCategory, userMessage, session }) {
   if (!userId || !session) return { data: null, error: null, tableName: 'messages' };
   const supportUserId = CENTRAL_STAFF_USER_ID || session.user.id;
-  const text = buildSuspensionNoticeText({ status, blockedUntil, reasonCategory, userMessage });
+  const recipientName = await fetchUserDisplayNameById(userId, session);
+  const text = normalizePublicSupportBody(
+    buildSuspensionNoticeText({ status, blockedUntil, reasonCategory, userMessage }),
+    true,
+    recipientName,
+  );
 
   let conversation = null;
   if (supportUserId === session.user.id) {
@@ -2767,6 +2774,9 @@ async function sendSuspensionNotice({ block, userId, status, blockedUntil, reaso
       user_block_id: block?.id || null,
       suspension_status: status,
       reason_category: reasonCategory || null,
+      actual_staff_user_id: session.user.id,
+      centralized_staff_user_id: supportUserId,
+      public_sender_name: PUBLIC_SUPPORT_NAME,
       support_notice: true,
     },
   };
@@ -3433,6 +3443,11 @@ export async function fetchConversations() {
     ]);
 
     if (!allParticipantsResult.error && !messagesResult.error) {
+      const currentUserName = await fetchUserDisplayNameById(session.user.id, session);
+      const supportUserIds = await fetchStaffUserIds([
+        ...(allParticipantsResult.data || []).map((row) => row.user_id),
+        ...(messagesResult.data || []).map((row) => row.sender_id),
+      ], session);
       const participantConversations = buildPersonConversations({
         conversationIds,
         participantRows: allParticipantsResult.data || [],
@@ -3440,6 +3455,8 @@ export async function fetchConversations() {
         conversationRows: conversationsResult.data || [],
         bookingRows,
         currentUserId: session.user.id,
+        currentUserName,
+        supportUserIds,
       });
 
       if (participantConversations.length) {
@@ -3454,7 +3471,13 @@ export async function fetchConversations() {
     }
   }
 
-  const groupedConversations = groupBookingConversations(bookingRows, session.user.id);
+  const bookingSupportUserIds = await fetchStaffUserIds(bookingRows.flatMap((row) => [
+    row.learner_id,
+    row.instructor_services?.instructor_profiles?.user_id,
+    ...(Array.isArray(row.messages) ? row.messages.map((message) => message.sender_id) : []),
+  ]), session);
+  const currentUserName = await fetchUserDisplayNameById(session.user.id, session);
+  const groupedConversations = groupBookingConversations(bookingRows, session.user.id, bookingSupportUserIds, currentUserName);
   return {
     ...learnerResult,
     data: isSuspended ? await filterSupportConversations(groupedConversations, session) : groupedConversations,
@@ -3522,6 +3545,9 @@ export async function ensureDirectConversationWithUser(userIdentifier) {
   }
 
   const otherUser = resolvedUser.data;
+  const supportUserIds = await fetchStaffUserIds([otherUserId], session);
+  const otherPartyName = supportUserIds.has(otherUserId) ? PUBLIC_SUPPORT_NAME : displayUserName(otherUser);
+  const otherPartyAvatarUrl = supportUserIds.has(otherUserId) ? PUBLIC_SUPPORT_AVATAR_URL : (otherUser.avatar_url || '');
 
   const buildPendingConversation = (error = null) => ({
     data: finalizePersonConversation({
@@ -3534,9 +3560,9 @@ export async function ensureDirectConversationWithUser(userIdentifier) {
       bookings: [],
       otherPartyId: otherUserId,
       otherPartyUsername: otherUser.username || '',
-      otherPartyName: displayUserName(otherUser),
-      coachName: displayUserName(otherUser),
-      avatarUrl: otherUser.avatar_url || '',
+      otherPartyName,
+      coachName: otherPartyName,
+      avatarUrl: otherPartyAvatarUrl,
       title: 'Direct messages',
       location: '',
       displayDate: formatDisplayDate(new Date().toISOString()),
@@ -3553,7 +3579,7 @@ export async function ensureDirectConversationWithUser(userIdentifier) {
       lastMessage: 'No messages yet',
       lastMessageAt: new Date().toISOString(),
       messageCount: 0,
-    }, session.user.id),
+    }, session.user.id, supportUserIds),
     error,
     tableName: 'conversations',
   });
@@ -3607,9 +3633,9 @@ export async function ensureDirectConversationWithUser(userIdentifier) {
       bookings: [],
       otherPartyId: otherUserId,
       otherPartyUsername: otherUser.username || '',
-      otherPartyName: displayUserName(otherUser),
-      coachName: displayUserName(otherUser),
-      avatarUrl: otherUser.avatar_url || '',
+      otherPartyName,
+      coachName: otherPartyName,
+      avatarUrl: otherPartyAvatarUrl,
       title: 'Direct messages',
       location: '',
       displayDate: formatDisplayDate(new Date().toISOString()),
@@ -3626,7 +3652,7 @@ export async function ensureDirectConversationWithUser(userIdentifier) {
       lastMessage: 'No messages yet',
       lastMessageAt: new Date().toISOString(),
       messageCount: 0,
-    }, session.user.id),
+    }, session.user.id, supportUserIds),
     error: null,
     tableName: 'conversations',
   };
@@ -3736,11 +3762,13 @@ export async function fetchConversationMessages(conversation) {
       return true;
     })
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
+  const supportUserIds = await fetchStaffUserIds(data.map((row) => row.sender_id), session);
+  const currentUserName = await fetchUserDisplayNameById(session.user.id, session);
 
   return {
     tableName: 'messages',
     error,
-    data: data.map((row) => normalizeMessage(row, session.user.id)),
+    data: data.map((row) => normalizeMessage(row, session.user.id, supportUserIds, currentUserName)),
   };
 }
 
@@ -3902,7 +3930,7 @@ async function insertBookingUpdateMessage({ bookingId, conversationId, text, ses
   return lastResult;
 }
 
-function buildPersonConversations({ conversationIds, participantRows, messageRows, conversationRows, bookingRows, currentUserId }) {
+function buildPersonConversations({ conversationIds, participantRows, messageRows, conversationRows, bookingRows, currentUserId, currentUserName = '', supportUserIds = new Set() }) {
   const participantsByConversation = groupBy(participantRows, (row) => row.conversation_id);
   const messagesByConversation = groupBy(messageRows, (row) => row.conversation_id);
   const conversationsById = new Map(conversationRows.map((row) => [row.id, row]));
@@ -3923,9 +3951,9 @@ function buildPersonConversations({ conversationIds, participantRows, messageRow
       bookings: bookingsByOtherParty.get(otherParticipant.user_id) || [],
       otherPartyId: otherParticipant.user_id,
       otherPartyUsername: otherParticipant.users?.username || '',
-      otherPartyName: displayUserName(otherParticipant.users),
-      coachName: displayUserName(otherParticipant.users),
-      avatarUrl: otherParticipant.users?.avatar_url || '',
+      otherPartyName: publicConversationName(otherParticipant.user_id, otherParticipant.users, supportUserIds),
+      coachName: publicConversationName(otherParticipant.user_id, otherParticipant.users, supportUserIds),
+      avatarUrl: publicConversationAvatar(otherParticipant.user_id, otherParticipant.users, supportUserIds),
       title: 'Direct messages',
       location: '',
       displayDate: '',
@@ -3962,6 +3990,11 @@ function buildPersonConversations({ conversationIds, participantRows, messageRow
     } else {
       byPerson.set(booking.otherPartyId, {
         ...booking,
+        ...publicConversationFields(booking.otherPartyId, {
+          otherPartyName: booking.otherPartyName,
+          coachName: booking.coachName,
+          avatarUrl: booking.avatarUrl,
+        }, supportUserIds),
         id: `person:${booking.otherPartyId}`,
         conversationIds: [],
         bookingIds: [booking.bookingId],
@@ -3972,17 +4005,26 @@ function buildPersonConversations({ conversationIds, participantRows, messageRow
   });
 
   return [...byPerson.values()]
-    .map((conversation) => finalizePersonConversation(conversation, currentUserId))
+    .map((conversation) => finalizePersonConversation(conversation, currentUserId, supportUserIds, currentUserName))
     .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
 }
 
-function finalizePersonConversation(conversation, currentUserId) {
+function finalizePersonConversation(conversation, currentUserId, supportUserIds = new Set(), currentUserName = '') {
   const messages = [...(conversation.messages || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   const lastMessage = messages[messages.length - 1];
   const latestBooking = [...(conversation.bookings || [])].sort((a, b) => new Date(b.lessonDate || 0) - new Date(a.lessonDate || 0))[0];
+  const publicFields = publicConversationFields(conversation.otherPartyId, conversation, supportUserIds);
+  const lastMessageBody = lastMessage
+    ? normalizePublicSupportBody(
+      lastMessage.text_content,
+      isPublicSupportSender(lastMessage.sender_id, currentUserId, supportUserIds, lastMessage.metadata, lastMessage.users),
+      currentUserName,
+    )
+    : '';
 
   return {
     ...conversation,
+    ...publicFields,
     bookingIds: [...new Set([...(conversation.bookingIds || []), ...((conversation.bookings || []).map((booking) => booking.bookingId))].filter(Boolean))],
     primaryConversationId: conversation.primaryConversationId || conversation.conversationIds?.[0] || '',
     bookingId: latestBooking?.bookingId || conversation.bookingIds?.[0] || '',
@@ -3999,34 +4041,36 @@ function finalizePersonConversation(conversation, currentUserId) {
     totalPrice: latestBooking?.totalPrice || conversation.totalPrice || 0,
     currency: latestBooking?.currency || conversation.currency || 'USD',
     isLearner: latestBooking?.isLearner || conversation.isLearner || false,
-    lastMessage: lastMessage?.text_content || latestBooking?.lastMessage || 'No messages yet',
+    lastMessage: lastMessageBody || latestBooking?.lastMessage || 'No messages yet',
     lastMessageAt: lastMessage?.created_at || latestBooking?.lastMessageAt || conversation.lastMessageAt || '',
     messageCount: messages.length,
-    previewSenderName: lastMessage ? displayUserName(lastMessage.users) : '',
+    previewSenderName: lastMessage ? publicSenderName(lastMessage.sender_id, lastMessage.users, lastMessage.metadata, currentUserId, supportUserIds) : '',
     lastMessageIsMine: lastMessage?.sender_id === currentUserId,
   };
 }
 
-function groupBookingConversations(bookingRows, currentUserId) {
+function groupBookingConversations(bookingRows, currentUserId, supportUserIds = new Set(), currentUserName = '') {
   const byPerson = new Map();
   bookingRows.map((row) => normalizeConversation(row, currentUserId)).forEach((booking) => {
     const key = booking.otherPartyId || booking.bookingId;
+    const publicFields = publicConversationFields(booking.otherPartyId, booking, supportUserIds);
     const existing = byPerson.get(key);
     if (existing) {
       existing.bookings.push(booking);
       existing.bookingIds.push(booking.bookingId);
       existing.messages.push(...booking.messages);
-      byPerson.set(key, finalizePersonConversation(existing, currentUserId));
+      byPerson.set(key, finalizePersonConversation({ ...existing, ...publicFields }, currentUserId, supportUserIds, currentUserName));
     } else {
       byPerson.set(key, finalizePersonConversation({
         ...booking,
+        ...publicFields,
         id: `person:${key}`,
         conversationIds: [],
         bookingIds: [booking.bookingId],
         primaryConversationId: '',
         bookings: [booking],
         messages: booking.messages,
-      }, currentUserId));
+      }, currentUserId, supportUserIds, currentUserName));
     }
   });
 
@@ -4080,27 +4124,113 @@ function normalizeConversation(row, currentUserId) {
   };
 }
 
-function normalizeMessage(row, currentUserId) {
+function normalizeMessage(row, currentUserId, supportUserIds = new Set(), currentUserName = '') {
   const user = row.users || {};
   const metadata = row.metadata || {};
+  const isPublicSupport = isPublicSupportSender(row.sender_id, currentUserId, supportUserIds, metadata, user);
   return {
     id: row.id,
     bookingId: row.booking_id,
     senderId: row.sender_id,
-    body: row.text_content || '',
+    body: normalizePublicSupportBody(row.text_content, isPublicSupport, currentUserName),
     imageUrl: row.image_url || '',
     messageType: row.message_type || 'text',
     metadata,
     createdAt: row.created_at || '',
     displayTime: formatMessageTime(row.created_at),
     isMine: row.sender_id === currentUserId,
-    senderName: metadata.public_sender_name || displayUserName(user),
-    avatarUrl: user.avatar_url || '',
+    senderName: isPublicSupport ? PUBLIC_SUPPORT_NAME : displayUserName(user),
+    avatarUrl: isPublicSupport ? PUBLIC_SUPPORT_AVATAR_URL : (user.avatar_url || ''),
   };
+}
+
+async function fetchStaffUserIds(userIds, session) {
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  const staffIds = new Set(ids.filter((id) => STAFF_USER_IDS.includes(id) || id === CENTRAL_STAFF_USER_ID));
+  const lookupIds = ids.filter((id) => !staffIds.has(id));
+  if (!lookupIds.length) return staffIds;
+
+  const result = await queryTable('staff_members', {
+    select: 'user_id',
+    user_id: `in.(${lookupIds.join(',')})`,
+    limit: '500',
+  }, session);
+
+  (result.data || []).forEach((row) => {
+    if (row.user_id) staffIds.add(row.user_id);
+  });
+  return staffIds;
+}
+
+function isPublicSupportSender(senderId, currentUserId, supportUserIds, metadata = {}, user = {}) {
+  return senderId !== currentUserId && (
+    supportUserIds.has(senderId)
+    || isStaffUserRecord(user)
+    || Boolean(metadata.actual_staff_user_id)
+    || Boolean(metadata.centralized_staff_user_id)
+    || String(metadata.public_sender_name || '').toLowerCase().includes('guidenextdoor')
+  );
+}
+
+function publicSenderName(senderId, user, metadata, currentUserId, supportUserIds) {
+  return isPublicSupportSender(senderId, currentUserId, supportUserIds, metadata, user)
+    ? PUBLIC_SUPPORT_NAME
+    : displayUserName(user);
+}
+
+function publicConversationFields(userId, conversation, supportUserIds) {
+  if (!supportUserIds.has(userId) && !isStaffUserRecord(conversation)) return {};
+  return {
+    otherPartyName: PUBLIC_SUPPORT_NAME,
+    coachName: PUBLIC_SUPPORT_NAME,
+    avatarUrl: PUBLIC_SUPPORT_AVATAR_URL,
+  };
+}
+
+function publicConversationName(userId, user, supportUserIds) {
+  return supportUserIds.has(userId) || isStaffUserRecord(user) ? PUBLIC_SUPPORT_NAME : displayUserName(user);
+}
+
+function publicConversationAvatar(userId, user, supportUserIds) {
+  return supportUserIds.has(userId) || isStaffUserRecord(user) ? PUBLIC_SUPPORT_AVATAR_URL : (user?.avatar_url || '');
+}
+
+function isStaffUserRecord(user = {}) {
+  const email = String(user.email || '').toLowerCase();
+  if (!email) return false;
+  return STAFF_EMAILS.includes(email)
+    || email.endsWith('@guidenextdoor.com')
+    || email.endsWith('@insurvault.com.hk');
+}
+
+function normalizePublicSupportBody(body, isPublicSupport, currentUserName = '') {
+  const original = String(body || '').trim();
+  if (!original || !isPublicSupport) return original;
+
+  let text = original.replaceAll('GuideNextdoor Support', PUBLIC_SUPPORT_NAME);
+  const name = String(currentUserName || '').trim() || 'there';
+
+  if (/^hi\s+[^,\n]+,/i.test(text)) {
+    return text.replace(/^hi\s+[^,\n]+,/i, `Hi ${name},`);
+  }
+  if (/^hi,/i.test(text)) {
+    return text.replace(/^hi,/i, `Hi ${name},`);
+  }
+  return `Hi ${name}, ${text}`;
 }
 
 function displayUserName(user = {}) {
   return user.nickname || user.display_name || user.username || user.email || 'GuideNextdoor user';
+}
+
+async function fetchUserDisplayNameById(userId, session) {
+  if (!userId) return '';
+  const result = await queryTable('users', {
+    select: 'id,email,display_name,nickname,username',
+    id: `eq.${userId}`,
+    limit: '1',
+  }, session);
+  return displayUserName(result.data?.[0] || {});
 }
 
 async function ensureUserProfile(session, profile = {}) {
@@ -4375,16 +4505,18 @@ function isMissingRpcError(error) {
 }
 
 function defaultPostModerationMessage(action, post, reasonCategory) {
+  const name = post?.coachName || 'there';
   if (action === 'restore') {
-    return `Hi, GuideNextdoor Support has restored your post "${post.title}". It is visible again on GuideNextdoor.`;
+    return `Hi ${name}, GuideNextdoor Customer Service has restored your post "${post.title}". It is visible again on GuideNextdoor.`;
   }
   const reason = reasonCategory ? ` Reason: ${humanizeKey(reasonCategory)}.` : '';
-  return `Hi, GuideNextdoor Support removed your post "${post.title}" after review.${reason} You can reply here if you need clarification.`;
+  return `Hi ${name}, GuideNextdoor Customer Service removed your post "${post.title}" after review.${reason} You can reply here if you need clarification.`;
 }
 
 function defaultCommentModerationMessage(comment, reasonCategory) {
+  const name = comment?.userName || 'there';
   const reason = reasonCategory ? ` Reason: ${humanizeKey(reasonCategory)}.` : '';
-  return `Hi, GuideNextdoor Support removed your comment after review.${reason} You can reply here if you need clarification.`;
+  return `Hi ${name}, GuideNextdoor Customer Service removed your comment after review.${reason} You can reply here if you need clarification.`;
 }
 
 function getComplaintModerationTarget(complaint) {
@@ -5434,16 +5566,18 @@ async function sendStaffApplicationMessage({ application, status, body, session 
   const staffUserId = CENTRAL_STAFF_USER_ID || session.user.id;
   const conversationResult = await ensureConversationBetweenUsers(staffUserId, applicantResult.data.id, session);
   if (conversationResult.error || !conversationResult.data?.id) return conversationResult;
+  const recipientName = displayUserName(applicantResult.data);
 
   const basePayload = {
     conversation_id: conversationResult.data.id,
-    text_content: body,
+    text_content: normalizePublicSupportBody(body, true, recipientName),
     message_type: 'coach_application_update',
     metadata: {
       application_id: application.id,
       application_status: status,
       actual_staff_user_id: session.user.id,
       centralized_staff_user_id: staffUserId,
+      public_sender_name: PUBLIC_SUPPORT_NAME,
       system_generated: true,
     },
   };
@@ -5522,16 +5656,17 @@ async function sendCentralSupportMessage({ recipientUserId, body, messageType, m
   const staffUserId = CENTRAL_STAFF_USER_ID || session.user.id;
   const conversationResult = await ensureConversationBetweenUsers(staffUserId, recipientUserId, session);
   if (conversationResult.error || !conversationResult.data?.id) return conversationResult;
+  const recipientName = await fetchUserDisplayNameById(recipientUserId, session);
 
   const basePayload = {
     conversation_id: conversationResult.data.id,
-    text_content: body,
+    text_content: normalizePublicSupportBody(body, true, recipientName),
     message_type: messageType || 'staff_support_message',
     metadata: {
       ...metadata,
       actual_staff_user_id: session.user.id,
       centralized_staff_user_id: staffUserId,
-      public_sender_name: 'GuideNextdoor Support',
+      public_sender_name: PUBLIC_SUPPORT_NAME,
     },
   };
   const attempts = [

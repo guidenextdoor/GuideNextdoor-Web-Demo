@@ -11,8 +11,7 @@ import {
   CalendarCheck,
   Pencil,
   CreditCard,
-  Info,
-  Flag
+  Info
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
@@ -20,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { updateBookingRequest } from '../lib/database';
 import ReportModal from './ReportModal';
+import MoreActionsMenu from './MoreActionsMenu';
 
 export default function BookingDetailModal({ booking, onClose, messagePath = '', onUpdated }) {
   const { t, i18n } = useTranslation();
@@ -260,14 +260,10 @@ export default function BookingDetailModal({ booking, onClose, messagePath = '',
                   Message Learner
                 </Link>
               )}
-              <button
-                type="button"
-                onClick={() => setReportTarget(buildBookingReportTarget(booking))}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-gnd-cream bg-white px-6 text-xs font-black text-gnd-dark transition-all hover:bg-gnd-cream/40 hover:text-gnd-red active:scale-95"
-              >
-                <Flag size={16} />
-                Report issue
-              </button>
+              <MoreActionsMenu
+                buttonClassName="h-12 w-12 rounded-2xl border border-gnd-cream bg-white"
+                actions={[{ key: 'report', label: 'Report', onClick: () => setReportTarget(buildBookingReportTarget(booking)) }]}
+              />
               
               {booking.status === 'Pending' ? (
                 <button className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-gnd-red px-8 text-xs font-black text-white shadow-lg shadow-red-600/20 transition-all hover:bg-gnd-dark active:scale-95">

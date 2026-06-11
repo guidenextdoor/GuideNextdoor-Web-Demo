@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
-  Flag,
   Heart,
   Image as ImageIcon,
   Languages,
@@ -25,6 +24,7 @@ import { fetchInstructorProfile, submitBookingRequest, togglePostLike, toggleSav
 import { buildLoginRedirectPath } from '../lib/navigation';
 import AuthActionNotice from '../components/AuthActionNotice';
 import ReportModal from '../components/ReportModal';
+import MoreActionsMenu from '../components/MoreActionsMenu';
 
 const tabs = ['posts', 'credentials', 'sessions', 'reviews'];
 
@@ -105,7 +105,7 @@ export default function GuideProfileView() {
   }, [requestedServiceId, requestedTab, state.coach, state.loading]);
 
   if (state.loading) {
-    return <div className="mx-auto max-w-7xl px-5 py-20 text-gnd-gray md:px-8">{t('states.loadingDatabase')}</div>;
+    return <GuideProfileSkeleton />;
   }
 
   if (state.error || !state.coach) {
@@ -276,10 +276,12 @@ export default function GuideProfileView() {
                   <CalendarDays size={16} />
                   {t('profile.viewSessions')}
                 </button>
-                <button type="button" onClick={() => setReportTarget(buildProfileReportTarget(coach))} className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-black text-gnd-dark ring-1 ring-gnd-cream hover:text-gnd-red">
-                  <Flag size={16} />
-                  Report
-                </button>
+                <div className="flex justify-center sm:justify-start">
+                  <MoreActionsMenu
+                    buttonClassName="h-10 w-10 rounded-xl bg-white ring-1 ring-gnd-cream"
+                    actions={[{ key: 'report', label: 'Report', onClick: () => setReportTarget(buildProfileReportTarget(coach)) }]}
+                  />
+                </div>
               </div>
             </div>
 
@@ -366,6 +368,53 @@ function buildProfileReportTarget(coach) {
       coach_name: coach.name || '',
     },
   };
+}
+
+function GuideProfileSkeleton() {
+  return (
+    <div className="bg-gnd-cream">
+      <section className="relative overflow-hidden bg-gnd-dark text-white">
+        <div className="absolute inset-0 animate-pulse bg-gnd-gray/30" />
+        <div className="relative mx-auto grid min-h-[560px] max-w-7xl gap-8 px-5 pb-12 pt-16 md:px-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:pt-24">
+          <div className="flex min-w-0 flex-col justify-end">
+            <div className="h-4 w-32 animate-pulse rounded-full bg-white/20" />
+            <div className="mt-5 h-12 w-full max-w-md animate-pulse rounded-full bg-white/25" />
+            <div className="mt-4 h-5 w-full max-w-2xl animate-pulse rounded-full bg-white/20" />
+            <div className="mt-3 h-5 w-3/4 max-w-xl animate-pulse rounded-full bg-white/15" />
+            <div className="mt-8 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
+              {[0, 1, 2, 3].map((item) => (
+                <div key={item} className="h-20 animate-pulse rounded-xl bg-white/15" />
+              ))}
+            </div>
+          </div>
+          <div className="self-end rounded-[1.25rem] bg-white p-3 shadow-xl shadow-red-900/10">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2">
+              {[0, 1, 2, 3].map((item) => (
+                <div key={item} className="h-16 animate-pulse rounded-xl bg-gnd-cream" />
+              ))}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="h-10 animate-pulse rounded-xl bg-gnd-cream" />
+              <div className="h-10 animate-pulse rounded-xl bg-gnd-red/20" />
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="mx-auto max-w-7xl px-5 py-8 md:px-8">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
+            <div className="h-12 animate-pulse rounded-lg bg-white" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              {[0, 1, 2, 3].map((item) => (
+                <div key={item} className="h-56 animate-pulse rounded-lg bg-white" />
+              ))}
+            </div>
+          </div>
+          <div className="h-80 animate-pulse rounded-lg bg-white" />
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function Stat({ label, value }) {

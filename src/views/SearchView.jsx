@@ -525,9 +525,7 @@ function inferLocationFromText(...parts) {
 
 function formatMoney(value, currency = 'USD') {
   const formatted = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
     maximumFractionDigits: 0,
   }).format(Number(value) || 0);
-  return formatted.startsWith(currency) ? formatted : `${currency} ${formatted}`;
+  return `${currency} ${formatted}`;
 }
