@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Award, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, IdCard, Loader2, MapPin, Plus, Search, Send, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { fetchLanguages, fetchLocations, fetchRefActivities, fetchRefQualifications, submitGuideApplication, uploadApplicationPhoto } from '../lib/database';
+import { fetchLanguages, fetchServiceLocations, fetchRefActivities, fetchRefQualifications, submitGuideApplication, uploadApplicationPhoto } from '../lib/database';
 import { compressImage } from '../lib/image-utils';
 
 const defaultPricingTier = { skillLevel: 'All Levels', currency: 'HKD', price1: '', extraPersonFee: '' };
@@ -84,7 +84,14 @@ export default function BecomeGuideView() {
     return matchesActivity && label.toLowerCase().includes(qualificationSearch.toLowerCase());
   });
   const filteredLocations = allLocations.filter((location) => {
-    const haystack = `${location.name || ''} ${location.country || ''}`.toLowerCase();
+    const haystack = [
+      location.displayName,
+      location.name,
+      location.district,
+      location.region,
+      location.country,
+      location.countryCode,
+    ].filter(Boolean).join(' ').toLowerCase();
     return haystack.includes(locationSearch.toLowerCase());
   });
 
@@ -92,7 +99,7 @@ export default function BecomeGuideView() {
     let cancelled = false;
     Promise.all([
       fetchLanguages(),
-      fetchLocations(),
+      fetchServiceLocations(),
       fetchRefActivities(),
       fetchRefQualifications(),
     ]).then(([languageResult, locationResult, activityResult, qualificationResult]) => {
@@ -177,10 +184,11 @@ export default function BecomeGuideView() {
         : [...current.locationIds, locationId];
       const nextLocationNames = allLocations
         .filter((item) => nextLocationIds.includes(item.id))
-        .map((item) => item.name)
+        .map((item) => item.displayName || item.name)
         .filter(Boolean);
-      if (location && !nextLocationNames.includes(location.name) && nextLocationIds.includes(locationId)) {
-        nextLocationNames.push(location.name);
+      const locationLabel = location?.displayName || location?.name || '';
+      if (locationLabel && !nextLocationNames.includes(locationLabel) && nextLocationIds.includes(locationId)) {
+        nextLocationNames.push(locationLabel);
       }
       return {
         ...current,
@@ -733,7 +741,7 @@ function CoverageAreas({
         {selectedLocations.map((location) => (
           <div key={location.id} className="flex items-center gap-1.5 rounded-lg border border-gnd-red bg-gnd-red/5 px-3 py-1.5">
             <MapPin size={12} className="text-gnd-red" />
-            <span className="text-xs font-bold text-gnd-dark">{location.name}</span>
+            <span className="text-xs font-bold text-gnd-dark">{location.displayName || location.name}</span>
             <button type="button" onClick={() => onToggle(location.id)} className="ml-1 text-gnd-red hover:text-red-700">
               <X size={14} />
             </button>
@@ -764,8 +772,10 @@ function CoverageAreas({
               >
                 <MapPin size={14} className="text-gnd-gray" />
                 <span>
-                  <span className="block text-sm font-black text-gnd-dark">{location.name}</span>
-                  {location.country && <span className="block text-[10px] font-bold uppercase text-gnd-gray">{location.country}</span>}
+                  <span className="block text-sm font-black text-gnd-dark">{location.displayName || location.name}</span>
+                  <span className="block text-[10px] font-bold uppercase text-gnd-gray">
+                    {[location.district, location.region, location.country].filter(Boolean).join(' · ')}
+                  </span>
                 </span>
                 {selectedIds.includes(location.id) && <span className="ml-auto text-xs font-bold text-gnd-red">{t('becomeGuide.form.locationAdded')}</span>}
               </button>
@@ -1088,7 +1098,7 @@ function normalizeServiceApplication(form, allLocations) {
   const normalized = normalizePricingFields(form);
   const locationNames = allLocations
     .filter((location) => normalized.locationIds.includes(location.id))
-    .map((location) => location.name)
+    .map((location) => location.displayName || location.name)
     .filter(Boolean);
 
   const manualLocation = normalized.manualLocation?.trim();

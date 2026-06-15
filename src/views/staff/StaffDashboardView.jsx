@@ -1295,7 +1295,7 @@ function ServiceDetail({ service, saving, onDecision, onMaskCertificate }) {
   const [instructorMessage, setInstructorMessage] = useState('');
   const requiresMessage = !instructorMessage.trim();
   const locationNames = (service.locations || [])
-    .map((location) => location.name || location.formattedAddress || location.formatted_address)
+    .map((location) => location.displayName || location.name || location.formattedAddress || location.formatted_address)
     .filter(Boolean);
 
   return (

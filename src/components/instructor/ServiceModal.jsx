@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Trash2, Loader2, MapPin } from 'lucide-react';
-import { fetchRefActivities, fetchRefQualifications, fetchLocations } from '../../lib/database';
+import { fetchRefActivities, fetchRefQualifications, fetchServiceLocations } from '../../lib/database';
 
 export default function ServiceModal({ isOpen, onClose, onSave, service, instructorId }) {
   const { t } = useTranslation();
@@ -40,7 +40,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
 
     Promise.all([
       fetchRefActivities(),
-      fetchLocations(),
+      fetchServiceLocations(),
       fetchRefQualifications(instructorId),
     ]).then(([actRes, locRes, qualRes]) => {
       if (!isMounted) return;
@@ -95,10 +95,17 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
   const [qualSearch, setQualSearch] = useState('');
   const [showQualResults, setShowQualResults] = useState(false);
 
-  const filteredLocations = allLocations.filter(loc => 
-    loc.name.toLowerCase().includes(locationSearch.toLowerCase()) ||
-    loc.country?.toLowerCase().includes(locationSearch.toLowerCase())
-  );
+  const filteredLocations = allLocations.filter((loc) => {
+    const haystack = [
+      loc.displayName,
+      loc.name,
+      loc.district,
+      loc.region,
+      loc.country,
+      loc.countryCode,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(locationSearch.toLowerCase());
+  });
 
   const filteredQualifications = qualifications.filter(q => 
     (!formData.activityId || q.activity_id === formData.activityId) &&
@@ -210,7 +217,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
     if (formData.qualificationId === 'custom' && !formData.customQualification.trim()) return { field: 'qualification', message: 'Complete Other qualification.' };
     if (!formData.attainmentYear) return { field: 'attainmentYear', message: 'Complete Attainment Year.' };
     if (!formData.certFile && !isEditing) return { field: 'certificate', message: 'Upload a certificate photo.' };
-    if (!formData.locationIds.length) return { field: 'location', message: 'Add at least one location.' };
+    if (!formData.locationIds.length) return { field: 'location', message: 'Add at least one service area.' };
     const incompletePricingIndex = formData.pricing.findIndex((tier) => !tier.skillLevel || !tier.currency || !tier.price1 || tier.extraPersonFee === '');
     if (!formData.pricing.length || incompletePricingIndex >= 0) return { field: 'pricing', message: 'Complete pricing details.' };
     return null;
@@ -513,13 +520,13 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
 
                   {/* Locations */}
                   <div className="space-y-4">
-                    <h3 className="text-lg font-black text-gnd-dark border-b border-gnd-cream pb-2">2. Location</h3>
+                    <h3 className="text-lg font-black text-gnd-dark border-b border-gnd-cream pb-2">2. Service Areas</h3>
                     
                     <div className="flex flex-wrap gap-2 mb-2">
                       {selectedLocationObjects.map(loc => (
                         <div key={loc.id} className="flex items-center gap-1.5 rounded-lg border border-gnd-red bg-gnd-red/5 px-3 py-1.5">
                           <MapPin size={12} className="text-gnd-red" />
-                          <span className="text-xs font-bold text-gnd-dark">{loc.name}</span>
+                          <span className="text-xs font-bold text-gnd-dark">{loc.displayName || loc.name}</span>
                           <button 
                             type="button"
                             onClick={() => handleLocationToggle(loc.id)}
@@ -540,7 +547,7 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                           setShowLocationResults(true);
                         }}
                         onFocus={() => setShowLocationResults(true)}
-                        placeholder="Search for a location..."
+                        placeholder="Search district, region, or country..."
                         className="w-full rounded-lg border border-gnd-cream bg-gnd-cream/10 px-3 py-3 text-sm font-bold text-gnd-dark outline-none focus:ring-1 focus:ring-gnd-red"
                       />
                       
@@ -561,8 +568,10 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                               >
                                 <MapPin size={14} className="text-gnd-gray" />
                                 <div>
-                                  <p className="text-sm font-black text-gnd-dark">{loc.name}</p>
-                                  {loc.country && <p className="text-[10px] font-bold text-gnd-gray uppercase">{loc.country}</p>}
+                                  <p className="text-sm font-black text-gnd-dark">{loc.displayName || loc.name}</p>
+                                  <p className="text-[10px] font-bold uppercase text-gnd-gray">
+                                    {[loc.district, loc.region, loc.country].filter(Boolean).join(' · ')}
+                                  </p>
                                 </div>
                                 {formData.locationIds.includes(loc.id) && (
                                   <span className="ml-auto text-xs font-bold text-gnd-red">Added</span>
@@ -570,14 +579,14 @@ export default function ServiceModal({ isOpen, onClose, onSave, service, instruc
                               </button>
                             )) : (
                               <div className="px-4 py-6 text-center text-xs font-bold text-gnd-gray">
-                                No locations found for "{locationSearch}"
+                                No service areas found for "{locationSearch}"
                               </div>
                             )}
                           </motion.div>
                         )}
                       </AnimatePresence>
                     </div>
-                    {formData.locationIds.length === 0 && <p className="text-sm text-gnd-red font-bold">Please add at least one location.</p>}
+                    {formData.locationIds.length === 0 && <p className="text-sm text-gnd-red font-bold">Please add at least one service area.</p>}
                   </div>
 
                   {/* Pricing Tiers */}

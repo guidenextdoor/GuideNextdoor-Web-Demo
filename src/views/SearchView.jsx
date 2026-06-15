@@ -111,7 +111,7 @@ export default function SearchView() {
             >
               <option value="">{t('sessionsSearch.filters.anyLocation')}</option>
               {(state.data?.locations || []).map((location) => (
-                <option key={location.id} value={location.id}>{location.name}</option>
+                <option key={location.id} value={location.id}>{location.displayName || location.name}</option>
               ))}
             </select>
           </label>
@@ -392,7 +392,13 @@ function matchesFilters(service, filters) {
     service.title,
     service.coachName,
     service.description,
-    ...service.locations.map((location) => location.name),
+    ...service.locations.flatMap((location) => [
+      location.displayName,
+      location.name,
+      location.district,
+      location.region,
+      location.country,
+    ]),
   ].join(' ').toLowerCase();
   return haystack.includes(keyword);
 }
@@ -497,9 +503,9 @@ function formatDate(value) {
 }
 
 function formatLocations(service) {
+  if (service.locations.length) return service.locations.map((location) => location.displayName || location.name).slice(0, 2).join(', ');
   const inferred = inferLocationFromText(service.title, service.description, service.coachName);
   if (inferred) return inferred;
-  if (service.locations.length) return service.locations.map((location) => location.name).slice(0, 2).join(', ');
   return service.profileLocation?.name || 'Meeting point to confirm';
 }
 

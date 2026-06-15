@@ -395,7 +395,7 @@ export async function fetchSessionSearchData() {
       order: 'attainment_year.desc',
       limit: '240',
     }),
-    fetchLocations(),
+    fetchServiceLocations(),
     fetchRefActivities(),
   ]);
 
@@ -878,13 +878,28 @@ export async function createPost(payload) {
 }
 
 export async function fetchLocations() {
-
   const result = await queryFirstAvailable('locations', {
     select: '*',
     limit: '1000',
     order: 'created_at.desc',
   });
   return { ...result, data: result.data.map((row) => normalizeLocation(row)) };
+}
+
+export async function fetchServiceLocations() {
+  const structuredResult = await queryTable('ref_service_locations', {
+    select: '*',
+    is_active: 'eq.true',
+    limit: '1000',
+    order: 'sort_order.asc,display_name.asc',
+  });
+  if (!structuredResult.error) {
+    return {
+      ...structuredResult,
+      data: structuredResult.data.map((row) => normalizeLocation(row)),
+    };
+  }
+  return fetchLocations();
 }
 
 export async function fetchCoachById(id) {
@@ -3149,13 +3164,27 @@ async function attachServiceLocations(services, session = null) {
   const serviceIds = services.map((service) => service.id).filter(Boolean);
   if (!serviceIds.length) return services;
 
+  const structuredCoverageResult = await queryTable('service_location_areas', {
+    select: '*',
+    service_id: `in.(${serviceIds.join(',')})`,
+  }, session);
+  const structuredRows = !structuredCoverageResult.error ? (structuredCoverageResult.data || []) : [];
+  const structuredLocationIds = [...new Set(structuredRows.map((row) => row.location_id).filter(Boolean))];
+  const structuredLocationResult = structuredLocationIds.length
+    ? await queryTable('ref_service_locations', {
+        select: '*',
+        id: `in.(${structuredLocationIds.join(',')})`,
+      }, session)
+    : { data: [] };
+  const structuredLocationById = new Map((structuredLocationResult.data || []).map((location) => [location.id, normalizeLocation(location)]));
+
   const coverageResult = await queryTable('service_coverage_areas', {
     select: '*',
     service_id: `in.(${serviceIds.join(',')})`,
   }, session);
-  if (coverageResult.error || !coverageResult.data.length) return services;
+  const legacyRows = !coverageResult.error ? (coverageResult.data || []) : [];
 
-  const locationIds = [...new Set(coverageResult.data.map((row) => row.location_id).filter(Boolean))];
+  const locationIds = [...new Set(legacyRows.map((row) => row.location_id).filter(Boolean))];
   const locationResult = locationIds.length
     ? await queryTable('locations', {
         select: '*',
@@ -3166,11 +3195,52 @@ async function attachServiceLocations(services, session = null) {
 
   return services.map((service) => ({
     ...service,
-    locations: coverageResult.data
+    locations: structuredRows
       .filter((row) => row.service_id === service.id)
-      .map((row) => locationById.get(row.location_id))
+      .map((row) => structuredLocationById.get(row.location_id))
+      .filter(Boolean)
+      .concat(legacyRows
+        .filter((row) => row.service_id === service.id && !structuredRows.some((structuredRow) => structuredRow.service_id === service.id))
+        .map((row) => locationById.get(row.location_id))
+        .filter(Boolean))
       .filter(Boolean),
   }));
+}
+
+async function insertServiceLocationAreas(serviceId, locationIds = [], session = null) {
+  const ids = [...new Set((locationIds || []).filter(Boolean))];
+  if (!serviceId || !ids.length) return { error: null, tableName: 'service_location_areas' };
+
+  const structuredResult = await insertTable('service_location_areas', ids.map((locationId) => ({
+    service_id: serviceId,
+    location_id: locationId,
+  })), session, 'return=minimal');
+  if (!structuredResult.error) return structuredResult;
+
+  const legacyResult = await insertTable('service_coverage_areas', ids.map((locationId) => ({
+    service_id: serviceId,
+    location_id: locationId,
+  })), session, 'return=minimal');
+  return legacyResult.error ? structuredResult : legacyResult;
+}
+
+async function replaceServiceLocationAreas(serviceId, locationIds = [], session = null) {
+  if (!serviceId) return { error: 'missing_service_id', tableName: 'service_location_areas' };
+
+  const structuredDelete = await deleteTable('service_location_areas', { service_id: `eq.${serviceId}` }, session);
+  if (!structuredDelete.error) {
+    return insertServiceLocationAreas(serviceId, locationIds, session);
+  }
+
+  const legacyDelete = await deleteTable('service_coverage_areas', { service_id: `eq.${serviceId}` }, session);
+  if (legacyDelete.error) return legacyDelete;
+
+  const ids = [...new Set((locationIds || []).filter(Boolean))];
+  if (!ids.length) return { error: null, tableName: 'service_coverage_areas' };
+  return insertTable('service_coverage_areas', ids.map((locationId) => ({
+    service_id: serviceId,
+    location_id: locationId,
+  })), session, 'return=minimal');
 }
 
 function normalizeReview(row) {
@@ -5535,10 +5605,7 @@ async function createStaffServiceForInstructor({ instructorId, application = nul
 
   const locationIds = serviceOverride.locationIds || application?.serviceLocationIds || [];
   if (locationIds.length) {
-    await insertTable('service_coverage_areas', locationIds.map((locationId) => ({
-      service_id: service.id,
-      location_id: locationId,
-    })), session, 'return=minimal');
+    await insertServiceLocationAreas(service.id, locationIds, session);
   }
 
   return { data: service, error: null, tableName: 'instructor_services' };
@@ -5751,10 +5818,27 @@ function splitEnvList(value) {
 
 function normalizeLocation(row) {
   const metadata = row.metadata || {};
+  const district = row.district || row.city || row.name || metadata.district || metadata.name || '';
+  const region = row.region || row.city_or_region || metadata.region || '';
+  const country = row.country || metadata.country || '';
+  const displayName = row.display_name
+    || [district, region, country].filter(Boolean).join(', ')
+    || row.formatted_address
+    || row.name
+    || metadata.name
+    || 'New location';
   return {
     id: row.id || row.slug || row.name,
-    name: row.name || row.city || metadata.name || 'New location',
-    country: row.country || metadata.country || '',
+    name: displayName,
+    displayName,
+    district,
+    region,
+    country,
+    countryCode: row.country_code || metadata.country_code || '',
+    slug: row.slug || metadata.slug || '',
+    latitude: row.latitude !== undefined && row.latitude !== null ? Number(row.latitude) : null,
+    longitude: row.longitude !== undefined && row.longitude !== null ? Number(row.longitude) : null,
+    timezone: row.timezone || metadata.timezone || '',
     coachCount: row.coach_count || metadata.coach_count || 0,
     serviceCount: row.service_count || metadata.service_count || 0,
   };
@@ -6001,12 +6085,8 @@ export async function createInstructorService(payload) {
 
   // 4. Insert locations
   if (payload.locationIds && payload.locationIds.length > 0) {
-    const locationPayloads = payload.locationIds.map(locId => ({
-      service_id: service.id,
-      location_id: locId,
-    }));
-    const locationResult = await insertTable("service_coverage_areas", locationPayloads, session, "return=minimal");
-    if (locationResult.error) return { data: service, error: locationResult.error, tableName: 'service_coverage_areas' };
+    const locationResult = await insertServiceLocationAreas(service.id, payload.locationIds, session);
+    if (locationResult.error) return { data: service, error: locationResult.error, tableName: locationResult.tableName || 'service_location_areas' };
   }
 
   return { data: service, error: null };
@@ -6082,16 +6162,8 @@ export async function updateInstructorService(serviceId, payload) {
   }
 
   if (payload.locationIds) {
-    const deleteLocationResult = await deleteTable("service_coverage_areas", { service_id: `eq.${serviceId}` }, session);
-    if (deleteLocationResult.error) return { error: deleteLocationResult.error, tableName: 'service_coverage_areas' };
-    if (payload.locationIds.length > 0) {
-      const locationPayloads = payload.locationIds.map(locId => ({
-        service_id: serviceId,
-        location_id: locId,
-      }));
-      const locationResult = await insertTable("service_coverage_areas", locationPayloads, session, "return=minimal");
-      if (locationResult.error) return { error: locationResult.error, tableName: 'service_coverage_areas' };
-    }
+    const locationResult = await replaceServiceLocationAreas(serviceId, payload.locationIds, session);
+    if (locationResult.error) return { error: locationResult.error, tableName: locationResult.tableName || 'service_location_areas' };
   }
 
   return { error: null };

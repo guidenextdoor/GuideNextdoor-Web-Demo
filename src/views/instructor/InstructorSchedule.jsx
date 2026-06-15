@@ -1040,7 +1040,7 @@ function ServiceCardsPanel({ services, onAdd, onEdit, onDelete, feedback, t }) {
                   {service.locations?.[0] && (
                     <span className="inline-flex items-center gap-1">
                       <MapPin size={11} className="text-gnd-red" />
-                      {service.locations[0].name}
+                      {service.locations[0].displayName || service.locations[0].name}
                     </span>
                   )}
                 </div>

@@ -212,7 +212,7 @@ export default function InstructorServices() {
                     {service.locations.length > 0 && (
                       <div className="flex items-center gap-1 shrink-0 text-[10px] font-black text-gnd-gray/60 uppercase tracking-widest bg-gnd-cream/30 px-2 py-0.5 rounded-md">
                         <MapPin size={10} className="text-gnd-red" />
-                        {service.locations[0].name}
+                        {service.locations[0].displayName || service.locations[0].name}
                         {service.locations.length > 1 && <span>+{service.locations.length - 1}</span>}
                       </div>
                     )}
